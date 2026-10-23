@@ -1,0 +1,5 @@
+# Sound event types for labeling (mavric review -> Sound events -> Types...).
+types:
+- call
+- noise
+- other

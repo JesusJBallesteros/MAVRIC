@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# recordings and derived outputs
+sessions/*
+!sessions/.gitkeep
+
+# vendor SDK installers / wheels (downloaded locally, not part of the repo)
+firmware/spinnaker/
+
+# the lab's own configuration (tag IDs, serials, ports, ROIs); config/examples/ is tracked
+config/*
+!config/examples/
+
+# local-only documents: vendor manuals (copyrighted, linked from docs/), internal notes
+local/

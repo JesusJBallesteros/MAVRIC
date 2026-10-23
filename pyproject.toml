@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77"]  # PEP 639 licence fields
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mavric"
+version = "0.8.0"
+description = "Multimodal Audio-Video-RFID Interaction and Control: a behavioural suite for synchronized video, audio and RFID identification, with event-driven task control"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Jesus J. Ballesteros" }]
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY.md"]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=14",
+    "pyyaml>=6",
+    "pyserial>=3.5",
+    "opencv-python-headless>=4.8",  # headless: no bundled Qt, cannot clash with PySide6
+    "av>=12",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6", "pyqtgraph>=0.13.7"]
+basler = ["pypylon>=4"]
+audio = ["sounddevice>=0.5.1", "soundfile>=0.12"]
+dev = ["pytest>=8"]
+
+[project.urls]
+Repository = "https://github.com/JesusJBallesteros/MAVRIC"
+Issues = "https://github.com/JesusJBallesteros/MAVRIC/issues"
+
+[project.scripts]
+mavric = "mavric.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mavric*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

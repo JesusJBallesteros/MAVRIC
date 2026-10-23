@@ -1,0 +1,38 @@
+# MAVRIC event-driven outputs (edit in the acquire GUI: Outputs...). Both example rules are off.
+devices:
+  io:
+    type: arduino_io
+    port: SIM          # the built-in emulator; set the I/O Arduino's COM port for real outputs
+    baud: 115200
+    watchdog_s: 2.0
+    reset_wait_s: 2.0
+rules:
+- name: ttl_while_at_placeB   # pin 30 high while any subject is at antenna 2 (e.g. into an Intan DIN)
+  device: io
+  action: hold
+  params:
+    pin: 30
+  source: rfid
+  antennas:
+  - 2
+  who: any
+  event: while
+  refractory_s: 0.0
+  delay_s: 0.0
+  max_per_min: 0
+  enabled: false
+- name: led_any_arrival       # 500 ms pulse on pin 31 at every arrival
+  device: io
+  action: pulse
+  params:
+    pin: 31
+    ms: 500
+  source: rfid
+  antennas: any
+  who: any
+  event: enter
+  refractory_s: 2.0
+  delay_s: 0.0
+  max_per_min: 0
+  enabled: false
+clips: []

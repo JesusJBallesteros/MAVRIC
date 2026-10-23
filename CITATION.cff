@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: "MAVRIC: Multimodal Audio-Video-RFID Interaction and Control"
+message: "If you use this software, please cite it as below."
+type: software
+version: 0.8.0
+license: MIT
+repository-code: "https://github.com/JesusJBallesteros/MAVRIC"
+url: "https://github.com/JesusJBallesteros/MAVRIC"
+authors:
+  - given-names: "Jesus J."
+    family-names: "Ballesteros"
+    affiliation: "Neural Basis of Learning Lab, Institute of Cognitive Neuroscience (IKN), Ruhr-Universität Bochum"
+abstract: >-
+  A behavioural suite for experiments with RFID-tagged subjects: synchronized video, audio and RFID
+  identification, with event-driven outputs for task control and interaction. Records RFID reads, one or more
+  cameras and microphones on one clock, checks the synchronization with a random sync pulse, provides blind
+  ground-truth labeling of place occupancy and sound events, compares RFID with the labels, drives
+  event-triggered outputs and video clips, and prepares video for DeepLabCut.
+keywords:
+  - RFID
+  - animal behaviour
+  - video
+  - audio
+  - synchronization
+  - task control
+references:
+  - type: software
+    title: "MultiRFID: multi-backend RFID logging for animal behaviour experiments"
+    authors:
+      - given-names: "Jesus J."
+        family-names: "Ballesteros"
+    repository-code: "https://github.com/JesusJBallesteros/MultiRFID"
+    license: GPL-3.0-or-later

@@ -1,0 +1,40 @@
+# Conda (Miniconda / Miniforge) environment for MAVRIC.
+#
+#   conda env create -f environment.yml
+#   conda activate mavric
+#   pip install --no-deps -e .
+#
+# conda-forge only (no Anaconda "defaults" channel). Python 3.12 keeps the
+# environment compatible with DeepLabCut 3.x (Python 3.10-3.12) for later phases.
+
+name: mavric
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - numpy>=1.24
+  - pandas>=2.0
+  - pyarrow>=14
+  - pyyaml>=6
+  - pyserial>=3.5
+  - matplotlib>=3.7
+  - pyside6>=6.6
+  - pyqtgraph>=0.13.7
+  - pytest>=8
+  - pip:
+      # PyPI wheels on purpose:
+      # - av: bundles FFmpeg with the libx264 H.264 encoder
+      # - opencv-python-headless: no Qt of its own, so it cannot clash with PySide6
+      # - pypylon: Basler camera SDK binding (PyPI only)
+      # - sounddevice: its Windows wheel bundles a PortAudio with ASIO (MOTU driver); conda-forge's has none
+      # - soundfile: FLAC/WAV writing (bundles libsndfile)
+      - av>=12
+      - opencv-python-headless>=4.8
+      - pypylon>=4
+      - sounddevice>=0.5.1
+      - soundfile>=0.12
+# FLIR / Point Grey cameras (Chameleon3, Blackfly S): PySpin is not on PyPI.
+# Install the Spinnaker SDK, then its cp312 PySpin wheel into this environment
+# with `pip install --no-deps <wheel>` (see README, "FLIR / Point Grey cameras").

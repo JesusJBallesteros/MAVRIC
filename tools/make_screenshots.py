@@ -1,0 +1,218 @@
+"""Regenerate the README screenshots from simulated data (no hardware, no real recordings).
+
+    python tools/make_screenshots.py            # writes docs/images/*.png
+
+Windows are rendered offscreen; numbered callouts are drawn on the controls
+the README describes.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if os.name == "nt":
+    os.environ.setdefault("QT_QPA_FONTDIR", r"C:\Windows\Fonts")
+
+from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "docs" / "images"
+ACCENT = QtGui.QColor("#eb6834")
+
+
+def pump(app, seconds: float) -> None:
+    t_end = time.time() + seconds
+    while time.time() < t_end:
+        app.processEvents()
+        time.sleep(0.02)
+
+
+def annotate(window: QtWidgets.QWidget, items: list[tuple[QtWidgets.QWidget, int]], path: Path,
+             scale: float = 1.0) -> None:
+    """Grab `window` and draw numbered callouts on the given widgets."""
+    pm = window.grab()
+    p = QtGui.QPainter(pm)
+    p.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+    font = QtGui.QFont("Segoe UI", 11)
+    font.setBold(True)
+    p.setFont(font)
+    for w, n in items:
+        if w is None or not w.isVisible():
+            continue
+        tl = w.mapTo(window, QtCore.QPoint(0, 0))
+        r = QtCore.QRect(tl, w.size()).adjusted(1, 1, -1, -1)
+        p.setPen(QtGui.QPen(ACCENT, 2.5))
+        p.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(r, 6, 6)
+        c = QtCore.QRect(r.right() - 22, r.top() - 4, 26, 26)  # top-right: keeps group titles readable
+        p.setBrush(ACCENT)
+        p.setPen(QtCore.Qt.PenStyle.NoPen)
+        p.drawEllipse(c)
+        p.setPen(QtGui.QColor("white"))
+        p.drawText(c, QtCore.Qt.AlignmentFlag.AlignCenter, str(n))
+    p.end()
+    if scale != 1.0:
+        pm = pm.scaledToWidth(int(pm.width() * scale), QtCore.Qt.TransformationMode.SmoothTransformation)
+    pm.save(str(path))
+    print("wrote", path.relative_to(ROOT))
+
+
+def neutral_paths(widget, tmp: Path) -> None:
+    """Show config paths as a user would see them (config/...), not the temporary folder."""
+    for lab in widget.findChildren(QtWidgets.QLabel):
+        t = lab.text()
+        if str(tmp) in t:
+            for name in ("outputs.yaml", "video2.yaml", "video.yaml"):
+                t = t.replace(str(tmp / name), "config/" + name.replace("video2", "video"))
+            lab.setText(t.replace(str(tmp), "config"))
+
+
+def group(window, title: str):
+    return next((g for g in window.findChildren(QtWidgets.QGroupBox) if g.title() == title), None)
+
+
+def button(window, text: str):
+    return next((b for b in window.findChildren(QtWidgets.QAbstractButton) if b.text() == text), None)
+
+
+def main() -> None:
+    app = QtWidgets.QApplication(sys.argv)
+    font = QtGui.QFont("Segoe UI", 9)
+    font.setFamilies(["Segoe UI", "Segoe UI Symbol", "Segoe UI Emoji"])  # ✔ ⚡ ▶ need the symbol fonts
+    app.setFont(font)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (ROOT / "build").mkdir(exist_ok=True)  # inside the repo (git-ignored): no user paths in the pictures
+    tmp = Path(tempfile.mkdtemp(prefix="screens_", dir=ROOT / "build"))
+    shutil.copytree(ROOT / "config" / "examples", tmp / "config")  # the example rig, not the lab's own
+    rig_file = tmp / "config" / "rig.yaml"
+    os.environ["MAVRIC_ROOT"] = str(tmp)  # windows that call load_rig() themselves see the example rig too
+
+    from mavric.acquire import simulation_controller
+    from mavric.config import load_rig
+    from mavric.gui.acquire_window import GRID, AcquireWindow
+    from mavric.gui.outputs_dialog import OutputsDialog
+    from mavric.gui.video_dialogs import VideoSettingsDialog
+    from mavric.outputs.config import OutputsConfig, Rule
+
+    # ------------------------------------------------------------------ acquire (simulated cage)
+    rig = load_rig(rig_file)
+    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp / "sessions"), "outputs_file": str(tmp / "outputs.yaml"),
+                    "video_settings_file": str(tmp / "video.yaml")}
+    rig["cameras"] = [{"id": "cam0", "backend": "synthetic", "fps": 30},
+                      {"id": "cam1", "backend": "synthetic", "fps": 30, "record": "triggered"}]
+    OutputsConfig(
+        {"io": {"type": "arduino_io", "port": "SIM", "baud": 115200, "watchdog_s": 2.0, "reset_wait_s": 0.0}},
+        [Rule("ttl_placeB", "io", "hold", {"pin": 30}, antennas=[2], event="while"),
+         Rule("led_arrivals", "io", "pulse", {"pin": 31, "ms": 200}, event="enter", refractory_s=2.0)],
+        [{"name": "placeB_clip", "camera": "cam1", "antennas": [2], "match": "any", "pre_s": 3.0, "post_s": 5.0,
+          "max_s": 300.0}]).save(tmp / "outputs.yaml")
+    (tmp / "sessions").mkdir()
+    ctl = simulation_controller(rig, seed=5)
+    win = AcquireWindow(ctl, sim=True)
+    win.resize(1500, 1460)
+    win.show()
+    ctl.connect_rfid(ctl._sim_source)
+    for c in rig["cameras"]:
+        ctl.connect_camera(c)
+    ctl.connect_audio()
+    win._build_audio_views()
+    win._refresh_views(select="cam0")
+    win.name_edit.setText("demo")
+    pump(app, 8)
+    annotate(win, [(group(win, "Devices"), 1), (group(win, "Audio inputs"), 2),
+                   (group(win, "Place ROIs (one per antenna) and sync LED"), 3), (group(win, "Live RFID"), 4),
+                   (group(win, "Recording"), 5),
+                   (group(win, "Outputs and camera clips (TTL, Intan, MATLAB, messages, video clips)"), 6),
+                   (win.video, 7), (win.spec, 8), (button(win, "Help"), 9)],
+             OUT / "acquire.png", scale=0.8)
+    win.view_combo.setCurrentIndex(win.view_combo.findData(GRID))
+    win.resize(1500, 760)
+    pump(app, 1.5)
+    win.grid.grab().save(str(OUT / "acquire_grid.png"))
+    print("wrote docs/images/acquire_grid.png")
+    win.view_combo.setCurrentIndex(win.view_combo.findData("cam0"))
+
+    dlg = OutputsDialog(win, ctl)
+    dlg.resize(1000, 380)
+    neutral_paths(dlg, tmp)
+    tabs = dlg.findChild(QtWidgets.QTabWidget)
+    for i, name in ((1, "outputs_rules.png"), (2, "outputs_clips.png")):
+        tabs.setCurrentIndex(i)
+        dlg.show()
+        pump(app, 0.3)
+        dlg.grab().save(str(OUT / name))
+        print("wrote docs/images/" + name)
+    dlg.close()
+    win.close()
+    ctl.shutdown()
+
+    # video settings: two (unconnected) FLIR cameras with placeholder serials
+    rig2 = load_rig(rig_file)
+    rig2["paths"] = {**rig2["paths"], "outputs_file": str(tmp / "o2.yaml"),
+                     "video_settings_file": str(tmp / "video2.yaml")}
+    rig2["cameras"] = [{"id": "cam0", "backend": "flir", "device": "12345678", "fps": 30, "exposure_us": 8000},
+                       {"id": "cam1", "backend": "flir", "device": "12345679", "fps": 30, "record": "triggered"}]
+    from mavric.acquire import AcquisitionController
+    from mavric.config import RoiSet, TagMap
+
+    w2 = AcquireWindow(AcquisitionController(rig2, TagMap(), RoiSet()))
+    vs = VideoSettingsDialog(w2)
+    vs.resize(820, 700)
+    neutral_paths(vs, tmp)
+    vs.show()
+    pump(app, 0.3)
+    annotate(vs, [(vs.form_box, 1), (vs.b_apply, 2), (vs.fmt.parentWidget(), 3), (vs.c_widgets.parentWidget(), 4)],
+             OUT / "video_settings.png", scale=0.85)
+    vs.close()
+    w2.close()
+
+    # ------------------------------------------------------------------ review (simulated session)
+    from mavric.analysis.pipeline import run_analysis
+    from mavric.audio.detect import detect_events
+    from mavric.gui.review_window import ReviewWindow
+    from mavric.sim import simulate_session
+
+    sess = simulate_session(tmp / "sessions", duration_s=240, seed=7, audio=True, label_noise_s=0.15,
+                            label_coverage_s=150, name="demo", rig_path=rig_file)
+    win = ReviewWindow(sess, "demo")
+    win.resize(1600, 1380)
+    win.show()
+    win.rb_cur.setChecked(True)
+    pump(app, 2.0)
+    snd = win.sound
+    snd.proposals = snd._without_labeled(detect_events(snd.src))
+    t0 = 40.0
+    for r in snd.proposals[(snd.proposals["start_s"] > t0) & (snd.proposals["start_s"] < t0 + 18)].itertuples():
+        win.seek_time(r.start_s + 0.01)
+        snd.set_type(0)
+        snd.accept_proposal()
+        snd.accept_suggestion()
+    win.plot.setXRange(t0 - 2, t0 + 22, padding=0)
+    win.seek_time(t0 + 6)
+    pump(app, 1.0)
+    annotate(win, [(win.video, 1), (win.plot, 2), (snd.lanes.env_plot, 3), (snd.lanes.spec_plots[0], 4),
+                   (group(win, "Mode"), 5), (group(win, "Place (Up/Down)"), 6), (group(win, "Subject keys"), 7),
+                   (group(win, "Playback"), 8), (group(win, "Session"), 9), (snd.panel, 10)],
+             OUT / "review.png", scale=0.75)
+    snd.close()
+    win.dirty = snd.dirty = False
+    win.close()
+
+    # ------------------------------------------------------------------ analysis plots
+    run_analysis(sess, plots=True)
+    for name in ("timeline_by_subject", "accuracy_per_place", "sync_diagnostics"):
+        src = sess.analysis_dir / f"{name}.png"
+        if src.exists():
+            shutil.copy(src, OUT / f"analysis_{name}.png")
+            print(f"wrote docs/images/analysis_{name}.png")
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()

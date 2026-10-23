@@ -1,0 +1,105 @@
+# MAVRIC rig configuration. Paths are relative to the project root.
+# Example: the first run copies config/examples/* to config/; edit those copies (git ignores them).
+
+rfid:
+  port: auto          # Arduino MEGA serial port, or "auto" (first Arduino found by USB VID)
+  baud: 500000        # must match Serial.begin() in the firmware
+  reset_wait_s: 2.0   # opening the port resets the MEGA; wait before flushing
+  round_period_s: 0.125  # firmware LOG_INTERVAL_US (8 Hz sampling rounds)
+
+# Reader number (firmware 1..4) -> place / ROI name
+antennas:
+  1: PlaceA
+  2: PlaceB
+  3: PlaceC
+  4: PlaceD
+
+cameras:
+  # The first camera is the ROI camera: place ROIs and the sync LED box are drawn on its image.
+  - id: cam0
+    backend: flir      # basler | flir | opencv | file | synthetic
+    device: ""           # basler/flir: serial number ("" = first found); opencv: index; file: video path
+    fps: 30
+    exposure_us: 8000
+    gain_db: 0.0
+    pixel_format: Mono8  # Mono8 | BGR8 (basler); opencv delivers BGR
+    line_status: false   # Chameleon3 has no per-frame line status: the sync LED in the image is used
+    record: continuous   # continuous | triggered (only clips from clip rules: Outputs... -> Camera clips)
+  # FLIR / Point Grey through Spinnaker (PySpin), e.g. a Chameleon3:
+  # - id: cam0
+  #   backend: flir
+  #   device: ""             # camera serial number ("" = first found); `mavric ports` lists them
+  #   fps: 30                # CM3-U3-13Y3M: up to 91 fps Mono8 full frame; 13S2: 30; 28S4: 13 (see README)
+  #   exposure_us: 8000      # must be shorter than 1/fps
+  #   gain_db: 0.0
+  #   pixel_format: Mono8    # Mono8 | BGR8 (colour models: on-board RGB, else raw Bayer demosaiced)
+  #   chunk_frame_counter: true  # camera's own frame counter -> true camera-side drop count
+  #   line_status: false     # Chameleon3 has no per-frame line-status chunk (Blackfly S: true works)
+  #   record: continuous
+  # - id: cam1           # e.g. a second camera that only records RFID-triggered clips
+  #   backend: flir
+  #   device: "40000001"
+  #   fps: 30
+  #   exposure_us: 8000
+  #   record: triggered
+
+# Recording format, raw chunk size and compression defaults are also set in the acquire GUI
+# (Video settings..., saved in config/video.yaml, which overrides this file).
+video:
+  record_format: raw  # raw: lossless chunks, compress afterwards (mavric compress) | h264: compressed while recording
+  raw_codec: ffv1     # ffv1 (lossless, ~half size) | rawvideo (uncompressed)
+  raw_chunk_mb: 2000  # start a new raw file every ~2 GB
+  compress: {codec: libx264, crf: 18, preset: medium, gop: 30}   # mavric compress defaults (DeepLabCut-friendly)
+  codec: libx264      # h264 recording: libx264 | mpeg4 (falls back to mpeg4 automatically)
+  crf: 20
+  gop_s: 1.0          # keyframe interval; short GOP keeps seeking in review fast
+  preset: veryfast
+
+# RFID-triggered clips (optional). A clip records on `camera` while a matching tag
+# is present at one of `antennas`, plus pre_s before (ring buffer) and post_s after.
+# Easier: acquire GUI -> Outputs... -> Camera clips (saved in config/outputs.yaml).
+# Rules written here are used as well.
+triggers: []
+# triggers:
+#   - name: placeB_clip
+#     camera: cam1
+#     antennas: [2]      # reader numbers, or "any"
+#     match: any         # "any", or a list of subject names / tag IDs, e.g. [S01, S03]
+#     pre_s: 3
+#     post_s: 5
+#     max_s: 300         # split clips longer than this
+
+# Audio (optional): MOTU M4 with two NT5 microphones, the sync pulse and four speakers (docs/wiring.md §7).
+# `mavric audio devices` lists what is connected; `mavric audio test --tones` checks it.
+audio:
+  enabled: false       # true: headless acquisition records audio (GUI: Connect audio)
+  device: MOTU         # name substring of the device
+  host_api: ASIO       # ASIO (MOTU driver) | WASAPI | MME
+  sample_rate: 48000
+  block: 1024          # samples per callback; raise if `audio test` reports overflows
+  latency: high        # high | low | seconds
+  inputs:              # M4 input -> name (list them all)
+    1: micA            # NT5, 48 V on
+    2: micB            # NT5, 48 V on
+    3: sync            # RFID MEGA D22 through the 10k/1k divider
+  sync_channel: sync
+  speakers:            # M4 output -> name
+    1: spk1
+    2: spk2
+    3: spk3
+    4: spk4
+  format: FLAC         # FLAC | WAV
+  split_s: 3600
+  max_level_dbfs: -6   # playback limiter
+  mic_near: {}         # mic -> antennas beside it, e.g. {micA: [1, 3], micB: [2, 4]}; ranks emitter suggestions
+
+sync:
+  led_roi_name: SYNC  # name of the rectangle ROI over the sync LED
+  led_pulse_s: 0.080  # = firmware SYNC_PULSE_US; must cover >= 2 frame intervals (warned otherwise)
+
+paths:
+  sessions_dir: sessions
+  tags_file: config/tags.csv
+  rois_file: config/rois.json
+  outputs_file: config/outputs.yaml   # event-driven outputs (acquire GUI: Outputs...)
+  sound_types_file: config/sound_types.yaml  # sound event types (review GUI: Sound events -> Types...)

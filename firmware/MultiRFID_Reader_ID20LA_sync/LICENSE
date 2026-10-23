@@ -1,0 +1,10 @@
+MultiRFID_Reader_ID20LA_sync.ino is a modified version of the ID-20LA sketch of
+MultiRFID (https://github.com/JesusJBallesteros/MultiRFID),
+Copyright (C) Jesus J. Ballesteros, licensed under the GNU General Public License,
+version 3 or (at your option) any later version.
+
+This file and the modifications made for MAVRIC (sync pulse, BOOT line, fixed-cadence
+sampling rounds) are distributed under the same licence: GPL-3.0-or-later.
+Full text: https://www.gnu.org/licenses/gpl-3.0.txt
+
+The rest of MAVRIC is MIT-licensed (see ../../LICENSE).
