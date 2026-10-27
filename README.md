@@ -36,6 +36,10 @@ subject arrives at, stays at or leaves a place.
 - For acquisition: USB 3 ports for the cameras, plus enough disk space for raw video (about 50 GB per camera-hour
   at 1280×1024, 30 fps).
 
+**New PC?** [docs/installation_windows.md](docs/installation_windows.md) walks through everything from a clean Windows
+installation: Git, conda, drivers and vendor software (Arduino, Spinnaker, MOTU, Intan, MATLAB), firmware and the
+first checks. The steps below assume those are in place.
+
 **Steps.** Run these in the *Anaconda Prompt (miniconda3)*:
 
 ```bash
@@ -312,6 +316,7 @@ Python read it directly.
 
 ## More documentation
 
+- [docs/installation_windows.md](docs/installation_windows.md): a new PC from scratch, drivers and vendor software.
 - [docs/reference.md](docs/reference.md): every option, the formats, how the synchronization works.
 - [docs/wiring.md](docs/wiring.md): wiring, pin maps, sync LED options, audio, bring-up.
 - Plans and design records:
