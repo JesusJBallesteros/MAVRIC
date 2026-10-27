@@ -102,19 +102,19 @@
   <text x="440" y="504" class="t">D10 (SoftSerial)</text>
   <text x="440" y="524" class="t">D5</text>
   <text x="440" y="599" class="t">GND</text>
-  <text x="682" y="474" class="t" text-anchor="end">D22 SYNC</text>
+  <text x="682" y="474" class="t" text-anchor="end">D52 SYNC</text>
   <text x="682" y="599" class="t" text-anchor="end">GND</text>
   <text x="610" y="290" class="s" text-anchor="middle">leave unconnected:</text>
   <text x="610" y="306" class="s" text-anchor="middle">D18 · D16 · D14 (TX)</text>
   <text x="610" y="322" class="s" text-anchor="middle">D11 · A0 (seed)</text>
   <text x="610" y="380" class="s" text-anchor="middle">D13 on-board LED</text>
   <text x="610" y="396" class="s" text-anchor="middle">= a tag is present</text>
-  <text x="610" y="540" class="s" text-anchor="middle">D22: 80 ms pulse at random</text>
+  <text x="610" y="540" class="s" text-anchor="middle">D52: 80 ms pulse at random</text>
   <text x="610" y="556" class="s" text-anchor="middle">2–6 s, logged as SYNC</text>
   <path d="M270 700 H400 V595 H430" class="gnd"/>
   <text x="285" y="692" class="s">common GND</text>
 
-  <!-- IR sync LED on D22 -->
+  <!-- IR sync LED on D52 -->
   <path d="M690 470 H760" class="syn"/>
   <circle cx="720" cy="470" r="4" fill="#eb6834"/>
   <rect x="760" y="462" width="44" height="16" rx="2" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
@@ -132,9 +132,9 @@
   <text x="740" y="556" class="s">box over it on cam0 (wiring.md §4.4).</text>
   <text x="740" y="572" class="s">Two LEDs: in series with one 100 Ω.</text>
 
-  <!-- D22 sync bus down to Intan and the audio interface -->
+  <!-- D52 sync bus down to Intan and the audio interface -->
   <path d="M720 470 V990" class="syn"/>
-  <text x="728" y="640" class="s">same D22 pulse to</text>
+  <text x="728" y="640" class="s">same D52 pulse to</text>
   <text x="728" y="656" class="s">audio (and Intan)</text>
 
   <!-- cameras -->
@@ -143,7 +143,7 @@
   <text x="1075" y="242" class="t">serial 12345678 · ROI camera</text>
   <text x="1075" y="260" class="s">perch ROIs and the SYNC box are drawn on its image</text>
   <text x="1075" y="278" class="s">record: continuous video, 30 fps</text>
-  <text x="1075" y="302" class="s">GPIO not needed. Optional: D22 → pin 9 OPTO_IN,</text>
+  <text x="1075" y="302" class="s">GPIO not needed. Optional: D52 → pin 9 OPTO_IN,</text>
   <text x="1075" y="318" class="s">MEGA GND → pin 7 OPTO_GND (wiring.md §5.3)</text>
 
   <rect x="1060" y="350" width="400" height="130" rx="6" class="box"/>
@@ -167,7 +167,7 @@
   <text x="345" y="872" class="h">Intan RHD controller (optional)</text>
   <text x="345" y="908" class="t">DIGITAL IN 1 ◂ I/O Arduino D30</text>
   <text x="345" y="924" class="s">event TTL / triggered recording</text>
-  <text x="345" y="964" class="t">DIGITAL IN 2 ◂ MEGA D22</text>
+  <text x="345" y="964" class="t">DIGITAL IN 2 ◂ MEGA D52</text>
   <text x="345" y="980" class="s">sync pulses into the ephys data</text>
   <text x="345" y="1000" class="s">I/O GND ◂ both Arduino GNDs</text>
   <path d="M720 960 H600" class="syn opt"/>
@@ -230,7 +230,7 @@
     <path d="M170 0 H200" class="gnd"/><text x="208" y="4" class="s">GND</text>
     <path d="M255 0 H285" class="dat"/><text x="293" y="4" class="s">reader data D0</text>
     <path d="M395 0 H425" class="tir"/><text x="433" y="4" class="s">Tag-in-Range</text>
-    <path d="M530 0 H560" class="syn"/><text x="568" y="4" class="s">sync pulse (D22)</text>
+    <path d="M530 0 H560" class="syn"/><text x="568" y="4" class="s">sync pulse (D52)</text>
     <path d="M680 0 H710" class="aud"/><text x="718" y="4" class="s">microphone (XLR)</text>
     <path d="M840 0 H870" class="spk"/><text x="878" y="4" class="s">speaker line (TRS)</text>
     <path d="M1000 0 H1030" class="ttl opt"/><text x="1038" y="4" class="s">event TTL</text>

@@ -51,13 +51,13 @@ layers, mirroring what the camera already does:
 1. **Clock fit.** Each audio block arrives in a callback. MAVRIC logs (first sample index, host time) per block and
    fits the lower envelope of sample time against host time, as for camera hardware ticks. This gives the offset and
    drift, about 1 ms after the fit.
-2. **Sync pulse recorded as audio (recommended, nearly free).** Feed the RFID MEGA's random **D22 sync pulse** into
+2. **Sync pulse recorded as audio (recommended, nearly free).** Feed the RFID MEGA's random **D52 sync pulse** into
    **M4 line input 3**.
    - **Level:** a 5 V TTL is too hot for a line input. Use a **resistor divider** (e.g. 10 kΩ / 1 kΩ → ≈ 0.45 V),
      or 10 kΩ in series into the input with 1 kΩ to ground, then a TS/TRS cable to In 3. Common ground with the MEGA.
    - **Result:** every pulse edge appears in the audio file at sample accuracy (≈ 21 µs at 48 kHz). The same
      pulse-train matcher used for the LED/video then aligns audio ↔ RFID ↔ video to well under a millisecond.
-   - **With Intan:** the same D22 train also goes to Intan DIGITAL IN 2, so ephys joins the same timeline.
+   - **With Intan:** the same D52 train also goes to Intan DIGITAL IN 2, so ephys joins the same timeline.
 
 **Playback timing**
 - **On the M4 (duplex):** the exact output sample of each sound is known, and that is its time in the recording.
@@ -92,7 +92,7 @@ audio:
   inputs:                  # M4 input (1-based) -> name; listed in full (no merge with defaults)
     1: micA                # NT5, 48 V on
     2: micB                # NT5, 48 V on
-    3: sync                # RFID MEGA D22 through the divider (wiring.md §7)
+    3: sync                # RFID MEGA D52 through the divider (wiring.md §7)
   sync_channel: sync
   speakers:                # M4 output (1-based) -> name; opened in the same (duplex) stream
     1: spk1
@@ -114,7 +114,7 @@ AU4 will add `sounds_dir` (the stimulus library).
 1. **Driver:** install the MOTU M-Series driver.
 2. **Mics:** connect the NT5s to M4 In 1–2 and switch 48 V **on**. Set the gain so loud calls peak around −12 dBFS.
    Switch **off** the MON (direct monitoring) buttons, so the mics never reach the speakers.
-3. **Sync and speakers:** build the sync divider cable (D22 → In 3), and connect the four powered speakers to
+3. **Sync and speakers:** build the sync divider cable (D52 → In 3), and connect the four powered speakers to
    M4 Out 1–4 (wiring.md §7).
 4. **`mavric audio devices`:** lists host APIs, devices and channel counts, and marks the configured device.
 5. **`mavric audio test [--tones]`:** records 10 s and reports, per channel:
@@ -246,7 +246,7 @@ In `mavric review`:
 ## 7. Decisions (project lead, 2026-10-21)
 
 1. **Speakers:** 4 powered speakers on the **M4** (Out 1–4), in the same duplex stream as the microphones.
-2. **Sync cable:** yes, D22 → divider → M4 In 3.
+2. **Sync cable:** yes, D52 → divider → M4 In 3.
 3. **Sample rate:** 48 kHz.
 4. **Labels:**
    - **Event types:** customizable.

@@ -25,16 +25,16 @@ connections only add redundancy, or prepare later upgrades.
 | 5 V regulated supply | the 4 ID-20LA readers (pins 11 and 2) | 2-wire per reader | reader power | **required** (bench: MEGA 5 V is acceptable) |
 | ID-20LA pin 9 (D0) | MEGA D19 / D17 / D15 / D10 | signal + GND pair | tag ID data, 9600 baud | **required** |
 | ID-20LA pin 6 (Tag in Range) | MEGA D2 / D3 / D4 / D5 | signal + GND pair | tag present | **required** |
-| MEGA D22 | 330 Ω → LED → GND; 220 Ω → IR LED OIS-330 740 (§4.4); or 100 Ω → MOSFET gate for 12 V LEDs (§4.2) | 2-wire | sync LED, visible to the cameras | **required** |
+| MEGA D52 | 330 Ω → LED → GND; 220 Ω → IR LED OIS-330 740 (§4.4); or 100 Ω → MOSFET gate for 12 V LEDs (§4.2) | 2-wire | sync LED, visible to the cameras | **required** |
 | 12 V wall plug | 12 V LEDs (+) and MOSFET source (−); (−) also joined to MEGA GND | 2-wire | power for 12 V sync LEDs | only with §4.2 |
-| MEGA D22 + GND | Chameleon3 GPIO pin 9 (OPTO_IN) + pin 7 (OPTO_GND) | 2-wire | sync pulse into the camera | optional |
+| MEGA D52 + GND | Chameleon3 GPIO pin 9 (OPTO_IN) + pin 7 (OPTO_GND) | 2-wire | sync pulse into the camera | optional |
 | Chameleon3 GPIO pin 8 (OPTO_OUT) | MEGA D21 (4.7 kΩ pull-up to 5 V) | 2-wire | exposure-active pulses to the Arduino | future (needs a firmware change) |
 | PC USB | **I/O Arduino** (`firmware/MAVRIC_IO`) | USB | event-driven TTL outputs (§6) | optional |
 | I/O Arduino pin + GND | Intan DIGITAL IN 1 + I/O GND | BNC coax | event TTL / triggered recording | optional |
-| MEGA D22 + GND | Intan DIGITAL IN 2 + I/O GND | BNC coax | sync pulses into the ephys data | optional (recommended with Intan) |
+| MEGA D52 + GND | Intan DIGITAL IN 2 + I/O GND | BNC coax | sync pulses into the ephys data | optional (recommended with Intan) |
 | PC USB | MOTU M4 USB-C | USB-C | audio interface (§7) | optional (audio) |
 | Rode NT5 ×2 | M4 In 1, In 2 (48 V on) | XLR | microphones micA, micB | optional (audio) |
-| MEGA D22 + GND, through a 10 kΩ / 1 kΩ divider | M4 In 3 | shielded TS | sync pulse into the audio | **required with audio** |
+| MEGA D52 + GND, through a 10 kΩ / 1 kΩ divider | M4 In 3 | shielded TS | sync pulse into the audio | **required with audio** |
 | M4 Out 1–4 | 4 powered speakers | balanced TRS | stimulus playback | optional (audio) |
 
 **Grounds:** every ground is common, except the camera's isolated OPTO_GND.
@@ -112,6 +112,9 @@ After wiring, confirm which physical perch each reader serves:
 
 This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 
+> **Changed 2026-10-27:** the sync pulse moved from D22 to **D52**. Rigs wired earlier: move the LED, camera,
+> Intan and audio sync wires from D22 to D52 together with the firmware update.
+
 | MEGA pin | Function in firmware | Connect to | Notes |
 |---|---|---|---|
 | USB-B | serial to PC, 500000 baud | PC | opening the port resets the board (that's normal) |
@@ -120,50 +123,50 @@ This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 | D2, D3, D4, D5 | Tag-in-Range inputs, readers 1–4 | ID-20LA pin 6 | the readers drive them; no pull-up needed. Optional 47 kΩ from each to GND: a broken TIR wire then reads "no tag" instead of a phantom bird |
 | D19 (RX1), D17 (RX2), D15 (RX3) | reader 1–3 data in (9600) | ID-20LA pin 9 | hardware UARTs |
 | D10 | reader 4 data in (SoftwareSerial RX) | ID-20LA pin 9 | pin supports pin-change interrupts |
-| **D22** | **sync pulse out**: 80 ms HIGH at random 2–6 s intervals | 330 Ω → LED anode; 220 Ω → IR LED (§4.4); or 100 Ω → MOSFET gate (12 V LEDs, §4.2); optional camera pin 9 | each pulse is logged as `SYNC` |
+| **D52** | **sync pulse out**: 80 ms HIGH at random 2–6 s intervals | 330 Ω → LED anode; 220 Ω → IR LED (§4.4); or 100 Ω → MOSFET gate (12 V LEDs, §4.2); optional camera pin 9 | each pulse is logged as `SYNC`. D52 sits at the GND end of the double header, beside the two GND pins. It is also the SPI clock (SCK), which is unused here |
 | D13 | on-board LED: lit while any reader has a tag | — | visual check only |
 | D18 (TX1), D16 (TX2), D14 (TX3), D11 (SoftSerial TX) | driven by the UARTs | **leave unconnected** | do not use as inputs |
 | A0 | random seed for the sync intervals | **leave unconnected** | must float |
 | D20, D21 | free, interrupt-capable | — | reserved for the future camera exposure-active input |
-| D23–D53, other analog pins | free | — | |
+| D22–D51, D53, other analog pins | free | — | |
 
 ---
 
 ## 4. Sync LED (required)
 
 Two ways to build it:
-- **§4.1:** a small 5 V LED driven straight from D22.
+- **§4.1:** a small 5 V LED driven straight from D52.
 - **§4.2:** 12 V LEDs (self-adhesive, resistor built in) powered by a 12 V wall plug and switched by a MOSFET.
-- **§4.4:** an infrared (740 nm) SMD LED, OIS-330 740, through 220 Ω from D22.
+- **§4.4:** an infrared (740 nm) SMD LED, OIS-330 740, through 220 Ω from D52.
 
 The firmware, the timing and the analysis are identical for all of them.
 
-### 4.1 Small LED, straight from D22
+### 4.1 Small LED, straight from D52
 
-**Circuit:** MEGA **D22 → 330 Ω → LED anode**, **LED cathode → GND**.
+**Circuit:** MEGA **D52 → 330 Ω → LED anode**, **LED cathode → GND**.
 - With a red or yellow LED (Vf ≈ 2 V) this draws about 9 mA. That's within the ATmega2560's recommended 20 mA per pin,
   and leaves room for the optional camera input on the same pin.
 - For a distant camera, or for 12 V LEDs, use the MOSFET driver in §4.2.
 
-**Buying LEDs for D22.** The pin outputs 5 V. Keep the LED current at **15 mA or less**, and at 10 mA or less if the
-camera's opto input also hangs on D22.
+**Buying LEDs for D52.** The pin outputs 5 V. Keep the LED current at **15 mA or less**, and at 10 mA or less if the
+camera's opto input also hangs on D52.
 
 | LED sold as | Wiring | Notes |
 |---|---|---|
-| **"5 V", with built-in resistor** (pre-wired) | D22 → LED + (red), LED − → GND | **Recommended:** nothing to add. Check that the listed current is ≤ 15 mA. |
-| **"3 V"**, or a bare LED (no resistor) | D22 → **resistor** → LED + (anode, long leg), LED − → GND | Needs the resistor. White/blue (≈ 3 V): **220 Ω** (≈ 9 mA). Red/yellow (≈ 2 V): **330 Ω** (≈ 9 mA). |
+| **"5 V", with built-in resistor** (pre-wired) | D52 → LED + (red), LED − → GND | **Recommended:** nothing to add. Check that the listed current is ≤ 15 mA. |
+| **"3 V"**, or a bare LED (no resistor) | D52 → **resistor** → LED + (anode, long leg), LED − → GND | Needs the resistor. White/blue (≈ 3 V): **220 Ω** (≈ 9 mA). Red/yellow (≈ 2 V): **330 Ω** (≈ 9 mA). |
 
-**Infrared LED (OIS-330 740):** D22 → 220 Ω → LED, as detailed in §4.4.
+**Infrared LED (OIS-330 740):** D52 → 220 Ω → LED, as detailed in §4.4.
 
 **Never connect a bare or "3 V" LED straight to the pin.** Nothing would then limit the current except the pin
 itself, which can exceed the pin's 40 mA absolute maximum and damage it.
 
 ### 4.2 12 V LEDs through a MOSFET (12 V wall plug)
 
-D22 only gives 5 V and at most 20 mA, while 12 V LEDs need 12 V and usually more current. So the 12 V wall plug
-powers the LEDs, and D22 only switches an N-channel MOSFET placed in the LEDs' negative (ground) lead:
-- **D22 high:** the MOSFET conducts, and current flows from +12 V through the LEDs and the MOSFET to the plug's (−).
-- **D22 low:** the MOSFET blocks, and the LEDs are off.
+D52 only gives 5 V and at most 20 mA, while 12 V LEDs need 12 V and usually more current. So the 12 V wall plug
+powers the LEDs, and D52 only switches an N-channel MOSFET placed in the LEDs' negative (ground) lead:
+- **D52 high:** the MOSFET conducts, and current flows from +12 V through the LEDs and the MOSFET to the plug's (−).
+- **D52 low:** the MOSFET blocks, and the LEDs are off.
 
 **Parts**
 
@@ -186,7 +189,7 @@ powers the LEDs, and D22 only switches an N-channel MOSFET placed in the LEDs' n
                                                   LEDs − (black)
                                                        │
                                                      drain
-MEGA D22 ──[ 100 Ω ]──┬──────────────────────── gate  IRLZ44N
+MEGA D52 ──[ 100 Ω ]──┬──────────────────────── gate  IRLZ44N
                       │                              source
                   [ 100 kΩ ]                           │
                       │                                │
@@ -216,7 +219,7 @@ LEDs draws tens of mA. An IRLZ44N carries this cold, with no heatsink.
 **Timing:** the MOSFET switches in well under a microsecond, so the LED still lights within microseconds of the
 `SYNC` timestamp. Nothing changes in the firmware or in `rig.yaml`.
 
-**Other loads on D22:** the camera opto input, Intan DIGITAL IN 2 and the audio divider can stay on D22 as they are.
+**Other loads on D52:** the camera opto input, Intan DIGITAL IN 2 and the audio divider can stay on D52 as they are.
 The gate draws no steady current.
 
 **Brightness**
@@ -252,25 +255,25 @@ Datasheet: [OIS-330 740](https://www.epigap-osa.com/datasheet/OIS-330_740.pdf) (
 | Wavelength | 740 nm peak (730–750 nm), 25 nm wide | far red, at the edge of visible light |
 | Forward voltage | 1.7 V typical, 2.0 V maximum, at 30 mA | sets the resistor |
 | Maximum current | **30 mA** continuous (less above 60 °C) | run it at about 15 mA. The 150 mA pulse rating is for pulses ≤ 100 µs, so it does not apply to 80 ms sync pulses. |
-| Reverse voltage | 5 V maximum | D22 never reverses it |
+| Reverse voltage | 5 V maximum | D52 never reverses it |
 | Beam | 40° (built-in lens) | aim it at the camera |
 | Package | 1206 SMD, 3.2 × 1.6 × 1.9 mm; the **mark on the back is the anode** | needs soldering (below) |
 
 **Circuit: one LED**
 
 ```
-MEGA D22 ──[ 220 Ω ]──► anode (marked end)  OIS-330 740  cathode ──── MEGA GND
+MEGA D52 ──[ 220 Ω ]──► anode (marked end)  OIS-330 740  cathode ──── MEGA GND
 ```
 
 - **Current:** (5 V − 1.7 V) / 220 Ω ≈ 15 mA. The pin sags slightly under load, so expect 13–15 mA.
-- **Headroom:** that is half the LED's maximum, and leaves room on D22 for the audio divider, Intan and the camera
+- **Headroom:** that is half the LED's maximum, and leaves room on D52 for the audio divider, Intan and the camera
   opto input.
-- **Brighter:** 180 Ω (≈ 18 mA) is the most to draw from D22 alone. Never use less than 150 Ω.
+- **Brighter:** 180 Ω (≈ 18 mA) is the most to draw from D52 alone. Never use less than 150 Ω.
 
 **Circuit: two LEDs** (e.g. one in view of each camera): put them **in series** with one 100 Ω resistor.
 
 ```
-MEGA D22 ──[ 100 Ω ]──► LED 1 ──► LED 2 ──── MEGA GND        (each LED: anode towards D22)
+MEGA D52 ──[ 100 Ω ]──► LED 1 ──► LED 2 ──── MEGA GND        (each LED: anode towards D52)
 ```
 
 - **Current:** (5 − 2 × 1.7) / 100 ≈ 16 mA through both, and still ≈ 10 mA with worst-case 2.0 V LEDs.
@@ -337,7 +340,7 @@ contacts. A pre-wired GPIO cable with the colours below is available from Point 
 | 6 | black | GND | as pin 2 | not used |
 | 7 | brown | **OPTO_GND** | ground of the isolated I/O | **optional:** MEGA GND. **Connect this first.** |
 | 8 | orange | **OPTO_OUT / Line1** | opto-isolated, open collector: needs a pull-up, ≤ 24 V, ≤ 25 mA | **future:** exposure-active strobe → MEGA D21 with a 4.7 kΩ pull-up to MEGA 5 V |
-| 9 | yellow | **OPTO_IN / Line0** | opto-isolated input, 0–30 V (abs. max 40 V) | **optional:** MEGA D22 (the sync pulse) |
+| 9 | yellow | **OPTO_IN / Line0** | opto-isolated input, 0–30 V (abs. max 40 V) | **optional:** MEGA D52 (the sync pulse) |
 
 The opto-isolated limits apply when the camera is powered over USB (manual §6.5).
 
@@ -345,7 +348,7 @@ The opto-isolated limits apply when the camera is powered over USB (manual §6.5
 
 **Wiring**
 1. MEGA **GND → pin 7 (OPTO_GND)**, *before* any signal.
-2. MEGA **D22 → pin 9 (OPTO_IN)**. Use the same D22 that drives the LED; the LED stays connected.
+2. MEGA **D52 → pin 9 (OPTO_IN)**. Use the same D52 that drives the LED; the LED stays connected.
 
 **Check:** in **SpinView**, set Line0 to *Input* and watch *LineStatus* flip on each flash.
 - If it never goes high, the 5 V pulse may not drive the opto input hard enough. Buffer it, for example with a
@@ -398,7 +401,7 @@ switch all pins low.
 |---|---|---|
 | I/O Arduino pin (e.g. **D30**) | Intan **DIGITAL IN 1** BNC centre | event TTL (*hold* rule = high while a bird is on the perch → **episodic triggered recording**; *pulse* rule = event marker) |
 | I/O Arduino **GND** | BNC shield **and** Intan **I/O GND** binding post (rear) | common reference |
-| RFID MEGA **D22** (sync pulse) | Intan **DIGITAL IN 2** BNC centre (+ MEGA GND → shield / I/O GND) | the same random pulse train as in the RFID log and the video, so ephys ↔ RFID ↔ video align offline |
+| RFID MEGA **D52** (sync pulse) | Intan **DIGITAL IN 2** BNC centre (+ MEGA GND → shield / I/O GND) | the same random pulse train as in the RFID log and the video, so ephys ↔ RFID ↔ video align offline |
 
 **Levels.** Intan digital inputs read 0–0.8 V as low and 2.0–5.5 V as high, and must **never exceed 5.5 V**. A 5 V
 Arduino pin is fine, and a 100–220 Ω series resistor is a cheap safeguard. A 3.3 V board would also work.
@@ -407,7 +410,7 @@ Arduino pin is fine, and a 100–220 Ω series resistor is a cheap safeguard. A 
 pre-trigger and the post-trigger seconds. RHX's **Remote TCP Control** can also start and stop recordings directly:
 add an *Intan RHX* device in Outputs….
 
-**Combining with the LED.** D22 then drives the LED (≈ 9 mA, or only a MOSFET gate with 12 V LEDs) plus the Intan
+**Combining with the LED.** D52 then drives the LED (≈ 9 mA, or only a MOSFET gate with 12 V LEDs) plus the Intan
 input, which draws negligible current.
 
 ### 6.3 LEDs, lights, relays
@@ -436,7 +439,7 @@ input, which draws negligible current.
 | MOTU M4 USB-C | PC USB | USB-C | Power and audio. Install the MOTU M-Series driver: MAVRIC uses its ASIO driver. |
 | NT5 "micA" | M4 **In 1** (front combo jack) | XLR, balanced | Press **48V** for input 1: the NT5 needs phantom power. |
 | NT5 "micB" | M4 **In 2** | XLR, balanced | Press **48V** for input 2. |
-| RFID MEGA **D22** + GND, through the divider below | M4 **In 3** (rear line input) | shielded mono cable, ¼" TS plug (or TRS with ring to sleeve) | Records the sync pulse. Keep the LED and any Intan wiring on D22 as they are. |
+| RFID MEGA **D52** + GND, through the divider below | M4 **In 3** (rear line input) | shielded mono cable, ¼" TS plug (or TRS with ring to sleeve) | Records the sync pulse. Keep the LED and any Intan wiring on D52 as they are. |
 | M4 **Out 1–4** (rear, balanced ¼" TRS) | powered speakers spk1–spk4 | TRS–XLR or TRS–TRS, balanced | Match `audio.speakers` in `rig.yaml`. The RCA outputs mirror Out 1–4. |
 
 **M4 front panel**
@@ -446,12 +449,12 @@ input, which draws negligible current.
   level. Mark its position and check the speaker levels with `mavric audio test --tones`, so stimulus levels stay
   the same between sessions.
 
-### 7.2 Sync cable: D22 → M4 In 3
+### 7.2 Sync cable: D52 → M4 In 3
 
-The D22 pulse is 5 V, which is too large for a line input. A resistor divider brings it to about 0.45 V:
+The D52 pulse is 5 V, which is too large for a line input. A resistor divider brings it to about 0.45 V:
 
 ```
-MEGA D22 ──[ 10 kΩ ]──┬──────── TS tip     → M4 In 3
+MEGA D52 ──[ 10 kΩ ]──┬──────── TS tip     → M4 In 3
                       │
                    [ 1 kΩ ]
                       │
@@ -465,7 +468,7 @@ MEGA GND ─────────────┴──────── TS s
 - **Level:** `mavric audio test` reports the step level. Anything between about −35 and −6 dBFS works.
   - If the step clips, use 22 kΩ instead of 10 kΩ.
   - If it is below −40 dBFS, use 4.7 kΩ.
-- **Load on D22:** D22 now drives the LED (or the MOSFET gate), the 11 kΩ divider (< 0.5 mA) and, optionally, an
+- **Load on D52:** D52 now drives the LED (or the MOSFET gate), the 11 kΩ divider (< 0.5 mA) and, optionally, an
   Intan input. That is well within the pin's limit.
 
 ### 7.3 Checks

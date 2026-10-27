@@ -113,7 +113,7 @@ C:\Code\MAVRIC\
 
 ### Phase 1: firmware sync addition (small and backward-compatible)
 - **Base:** a copy of `MultiRFID_Reader_ID20LABoards.ino`.
-- **Add:** a free pin (e.g. D22) driving an LED in camera view, with 80 ms pulses at random intervals of 2–6 s. Each pulse emits `<micros>,SYNC,0`.
+- **Add:** a free pin (e.g. D52) driving an LED in camera view, with 80 ms pulses at random intervals of 2–6 s. Each pulse emits `<micros>,SYNC,0`.
   - This keeps the 3-field format, so MATLAB just labels it `UNKNOWN`.
 - **Optional small fix:** `lastLogTimeUs += LOG_INTERVAL_US` (stops accumulated loop latency).
 - **No other changes.** The 8 Hz `NONE` heartbeat is kept, because it is used to detect dropped lines.

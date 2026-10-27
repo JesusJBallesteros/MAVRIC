@@ -57,7 +57,7 @@ Example targets:
 involved in the motor.
 - **Why a separate board:** it keeps the RFID MEGA's timing untouched. Every command is echoed back with the board's
   `micros()`, so output times can be placed on the session clock exactly as RFID reads are.
-- **Reusing the RFID MEGA:** it has free pins (D23–D53), so the same command protocol can be added to it later if a
+- **Reusing the RFID MEGA:** it has free pins (D22–D51, D53), so the same command protocol can be added to it later if a
   second board is unwanted.
 
 ## 3. Intan (your RHD recording controller)
@@ -82,7 +82,7 @@ From the [Intan Recording Controller user guide](https://intantech.com/files/Int
     `get runmode`. MAVRIC can connect as a client and start or stop recordings by rule.
   - Check exact command names against the "RHX TCP Control" guide for the installed version.
 
-**Synchronisation for free.** Route the existing random **sync pulse (MEGA D22)** also to **Intan DIGITAL IN 2**. The
+**Synchronisation for free.** Route the existing random **sync pulse (MEGA D52)** also to **Intan DIGITAL IN 2**. The
 ephys file then contains the same pulse train as the RFID log and the video, so all three can be aligned offline to
 sub-millisecond on the Intan side. Each event TTL sent to DIGITAL IN 1 additionally marks *when MAVRIC acted*.
 
@@ -262,7 +262,7 @@ armed"** switch lets you rehearse rules without driving hardware.
    - Arduino → Intan DIN BNC (plus I/O GND)
    - LED via an NPN/MOSFET with a resistor
    - relay module
-   - MEGA D22 → Intan DIN 2 for sync
+   - MEGA D52 → Intan DIN 2 for sync
    - TMCM-1141: 24 V supply, motor, USB, optional limit switches, optional I/O Arduino TTL into a module input
 4. Bench test: LED pulse latency measured with the camera and the LED/SYNC tools.
 

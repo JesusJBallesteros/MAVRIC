@@ -81,7 +81,7 @@ audio:
   inputs:              # M4 input -> name (list them all)
     1: micA            # NT5, 48 V on
     2: micB            # NT5, 48 V on
-    3: sync            # RFID MEGA D22 through the 10k/1k divider
+    3: sync            # RFID MEGA D52 through the 10k/1k divider
   sync_channel: sync
   speakers:            # M4 output -> name
     1: spk1

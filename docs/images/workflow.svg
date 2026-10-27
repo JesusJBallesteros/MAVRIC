@@ -29,7 +29,7 @@
   <text x="35" y="160" class="s">FLIR / Basler / webcam</text>
   <text x="35" y="190" class="t">Microphones, speakers</text>
   <text x="35" y="207" class="s">MOTU M4 (optional)</text>
-  <text x="35" y="237" class="t">Sync pulse (D22)</text>
+  <text x="35" y="237" class="t">Sync pulse (D52)</text>
   <text x="35" y="254" class="s">LED in view of the cameras,</text>
   <text x="35" y="270" class="s">audio input, Intan</text>
   <text x="35" y="300" class="s">one random pulse train ties</text>

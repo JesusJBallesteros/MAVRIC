@@ -44,7 +44,7 @@ const unsigned long LOG_INTERVAL_US    = 125000UL; // sampling round, 125 ms = 8
 const unsigned long TAG_CLEAR_DELAY_MS = 50;       // clear lastTag if TIR low > 50 ms
 
 // SYNC PULSE
-const uint8_t       SYNC_PIN         = 22;         // free digital pin on the MEGA
+const uint8_t       SYNC_PIN         = 52;         // free pin at the GND end of the MEGA's double header (was 22)
 const unsigned long SYNC_PULSE_US    = 80000UL;    // LED on-time, >= 2 frame intervals: 80 ms ok down to 25 fps;
                                                    // e.g. 160000 for a 13 fps camera (keep rig.yaml sync.led_pulse_s equal)
 const unsigned long SYNC_MIN_GAP_US  = 2000000UL;  // rising edge to rising edge, min

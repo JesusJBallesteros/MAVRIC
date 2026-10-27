@@ -115,7 +115,7 @@ def audio_check(cfg: AudioConfig, seconds: float = 10.0, tones: bool = False, to
         rep["sync"] = s
         if not len(e):
             w.append(f"sync ({cfg.sync_channel}, input {cfg.in_channels[cfg.sync_index]}): no pulses. Is the RFID "
-                     f"Arduino running (it pulses every 2-6 s) and the D22 cable on this input?")
+                     f"Arduino running (it pulses every 2-6 s) and the D52 cable on this input?")
         elif not len(on):
             w.append(f"sync: {len(e)} edges but no {cfg.pulse_s * 1e3:.0f} ms pulses: check sync.led_pulse_s "
                      f"and the cable")

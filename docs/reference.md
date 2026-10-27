@@ -222,12 +222,12 @@ The full pin-map (ID-20LA module pins, MEGA pin usage, Chameleon3 GPIO connector
 | 3 | 15 | 4 |
 | 4 | 10 (SoftwareSerial) | 5 |
 
-**Sync LED (new):** MEGA **D22** → 330 Ω → LED → GND.
-- For 12 V LEDs, run them from a 12 V wall plug and switch them from D22 with a logic-level MOSFET
-  ([docs/wiring.md §4.2](wiring.md)): D22 → 100 Ω → gate, 100 kΩ gate → GND, LEDs between +12 V and the drain,
+**Sync LED (new):** MEGA **D52** → 330 Ω → LED → GND.
+- For 12 V LEDs, run them from a 12 V wall plug and switch them from D52 with a logic-level MOSFET
+  ([docs/wiring.md §4.2](wiring.md)): D52 → 100 Ω → gate, 100 kΩ gate → GND, LEDs between +12 V and the drain,
   and the source to the plug's (−) and to MEGA GND.
 - Place it where every camera sees it; a small diffuser helps.
-- Optional, for frame-exact sync: also wire D22 (and GND) to a camera input line (Basler: Line 1 opto-in), and set
+- Optional, for frame-exact sync: also wire D52 (and GND) to a camera input line (Basler: Line 1 opto-in), and set
   `line_status: true` in `rig.yaml`. The camera then records the line state with every frame.
 
 **Firmware:** `firmware/MultiRFID_Reader_ID20LA_sync/`. It is the MultiRFID ID-20LA sketch plus:
