@@ -48,6 +48,13 @@ class CameraThread(threading.Thread):
         self._ring: deque[Frame] = deque()
         self.ring_s = ring_s
         self.error: str | None = None
+        self.started_abs = now()
+        self.last_frame_abs: float | None = None
+
+    @property
+    def no_frame_s(self) -> float:
+        """Seconds since the last frame (since connecting, before the first one)."""
+        return now() - (self.last_frame_abs or self.started_abs)
 
     @property
     def record_mode(self) -> str:
@@ -97,6 +104,7 @@ class CameraThread(threading.Thread):
                 if fr is None:
                     continue
                 self.latest = fr
+                self.last_frame_abs = fr.host_abs
                 self.n_frames += 1
                 self._times.append(fr.host_abs)
                 with self._lock:
@@ -383,7 +391,10 @@ class AcquisitionController:
         s["cameras"] = {}
         for cid, th in self.cams.items():
             rec = self._recorders.get(cid)
+            be = th.backend
             s["cameras"][cid] = {"fps": th.fps, "frames": th.n_frames, "error": th.error,
+                                 "no_frame_s": th.no_frame_s, "incomplete": be.n_failed,
+                                 "timeouts": be.n_timeouts, "problem": be.last_problem,
                                  "recorded": rec.writer.n if rec else None,
                                  "rec_dropped": rec.n_dropped if rec else None,
                                  "queue": rec.q.qsize() if rec else None, "record": th.record_mode}
@@ -397,6 +408,17 @@ class AcquisitionController:
                 a["rec_error"] = self._audio_rec.error
             s["audio"] = a
         return s
+
+
+def stall_text(cam_status: dict, after_s: float = 2.0) -> str | None:
+    """'NO FRAMES for N s (why)' for a connected camera that has stopped delivering, else None."""
+    c = cam_status
+    if c.get("no_frame_s", 0.0) < after_s:
+        return None
+    why = f"{c.get('incomplete', 0)} incomplete, {c.get('timeouts', 0)} timeouts"
+    if c.get("problem"):
+        why += f"; last: {c['problem']}"
+    return f"NO FRAMES for {c['no_frame_s']:.0f} s ({why})"
 
 
 def raw_mb_per_s(cams: dict, vcfg: dict) -> float:

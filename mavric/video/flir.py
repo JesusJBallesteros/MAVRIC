@@ -23,6 +23,11 @@ list is image CRC, frame counter, offsets, size, exposure, gain, black level),
 so `line_status: true` only works on models with `ExposureEndLineStatusAll`
 (e.g. Blackfly S). On the Chameleon3 the sync LED in the image is used.
 
+Chunk mode stays on in the camera until it is unplugged, so close() turns it
+back off if it was off. Some camera / Spinnaker combinations return every
+image as IMAGE_CHUNK_DATA_INVALID with chunks on; grab() then turns chunk
+mode off and carries on with the stream's frame IDs as the counter.
+
 Several cameras: Spinnaker's System is one object per process, and
 ReleaseInstance() fails while any camera is still in use. Every camera (and
 `list_flir_cameras`) therefore borrows one shared System, released by the
@@ -162,6 +167,8 @@ class FlirCamera(CameraBackend):
     def open(self) -> None:
         ps = self._ps = _import_pyspin()
         self.warnings: list[str] = []
+        # the IMAGE_CHUNK_DATA_INVALID status code(s); the name differs between PySpin versions
+        self._chunk_invalid = {getattr(ps, n) for n in dir(ps) if n.endswith("CHUNK_DATA_INVALID")}
         self.system = _acquire_system(ps)
         self.cam_list = self.system.GetCameras()
         serial = str(self.cfg.get("device", "") or "")
@@ -185,7 +192,11 @@ class FlirCamera(CameraBackend):
             self.model = self._get("DeviceModelName", "str", tl, "") or self._get("DeviceModelName", "str", default="")
             self.serial = self._get("DeviceSerialNumber", "str", tl, "") or serial
             self.firmware = self._get("DeviceFirmwareVersion", "str", default="")
+            self.link_speed = self._get("DeviceCurrentSpeed", "enum", tl, "")  # SuperSpeed = USB 3
             del tl
+            if self.link_speed and self.link_speed != "SuperSpeed":
+                self.warnings.append(f"USB link is {self.link_speed}, not SuperSpeed (USB 3): frames may arrive "
+                                     "incomplete or not at all; use a USB 3 port and cable, without a USB 2 hub")
             self._configure()
             self._configure_stream()
             self.cam.BeginAcquisition()
@@ -198,6 +209,9 @@ class FlirCamera(CameraBackend):
         cfg = self.cfg
         self._set("AcquisitionMode", "enum", "Continuous")
         self._set("TriggerMode", "enum", "Off", quiet=True)  # free-running
+        if self._get("TriggerMode", "enum") == "On":  # e.g. left on by SpinView in a saved user set
+            self.warnings.append("TriggerMode is still On: the camera sends a frame only for a pulse on its "
+                                 "GPIO input; turn TriggerMode off in SpinView")
 
         # pixel format: mono, or colour with on-board processing, else raw Bayer (demosaic here)
         want = str(cfg.get("pixel_format", "Mono8"))
@@ -217,6 +231,13 @@ class FlirCamera(CameraBackend):
         if self.pixel_format is None:
             self.pixel_format = self._get("PixelFormat", "enum", default="Mono8")
         self._configure_roi()
+
+        # several USB 3 cameras on one host controller: cap each one's share of the bus, before the frame rate
+        mb = cfg.get("link_limit_mb_s")
+        if mb and not self._set_int("DeviceLinkThroughputLimit", int(float(mb) * 1e6)):
+            self.warnings.append("link_limit_mb_s: this camera has no writable DeviceLinkThroughputLimit")
+        limit = self._get("DeviceLinkThroughputLimit", "int", default=None)
+        self.link_limit_mb_s = limit / 1e6 if limit else None
 
         # fixed exposure and gain (auto exposure would change frame timing and brightness)
         self._set("ExposureAuto", "enum", "Off")
@@ -247,9 +268,13 @@ class FlirCamera(CameraBackend):
         # chunks: the camera's own frame counter (true camera-side drops), line status where supported
         self._chunk_counter = False
         self.line_status = False
+        self._chunk_was = self._get("ChunkModeActive", "bool", default=None)  # restored by close()
+        self._chunk_on = False
+        self._bad_chunks = 0
         want_counter = bool(cfg.get("chunk_frame_counter", True))
         want_lines = bool(cfg.get("line_status", False))
         if (want_counter or want_lines) and self._set("ChunkModeActive", "bool", True, quiet=True):
+            self._chunk_on = True
             if want_counter and self._set("ChunkSelector", "enum", "FrameCounter", quiet=True):
                 self._chunk_counter = self._set("ChunkEnable", "bool", True, quiet=True)
             if want_lines:
@@ -333,13 +358,20 @@ class FlirCamera(CameraBackend):
         ps = self._ps
         try:
             img = self.cam.GetNextImage(int(timeout_s * 1000))
-        except ps.SpinnakerException:
-            return None  # timeout
+        except ps.SpinnakerException as e:
+            self.n_timeouts += 1
+            self.last_problem = f"no image within {timeout_s:g} s ({str(e)[:100]})"
+            return None
         t = now()
+        bad_chunks = False
         try:
             if img.IsIncomplete():
                 self.n_failed += 1
+                st, why = self._image_status(img)
+                self.last_problem = f"incomplete image ({why})"
+                bad_chunks = st in self._chunk_invalid or "chunk" in why.lower()
                 return None
+            self._bad_chunks = 0
             arr = np.array(img.GetNDArray(), copy=True)
             ticks = int(img.GetTimeStamp())
             counter = None
@@ -350,10 +382,41 @@ class FlirCamera(CameraBackend):
             line = int(self._get("ChunkExposureEndLineStatusAll", "int", default=0)) if self.line_status else None
         finally:
             img.Release()
+            if bad_chunks:
+                self._chunk_trouble()
         if self._ticks_ok is None and self._grab_idx >= 1:
             self._ticks_ok = ticks != 0
         hw = None if (ticks == 0 and not self._ticks_ok) else ticks
         return Frame(self._to_bgr(arr), t, self._next_idx(), hw_ticks=hw, hw_counter=int(counter), line_status=line)
+
+    def _image_status(self, img) -> tuple[object, str]:
+        """(status code, description) of an incomplete image."""
+        try:
+            st = img.GetImageStatus()
+        except Exception:
+            return None, "no status"
+        try:
+            return st, str(self._ps.Image_GetImageStatusDescription(st))
+        except Exception:
+            return st, f"status {st}"
+
+    def _chunk_trouble(self) -> None:
+        """Every image comes back IMAGE_CHUNK_DATA_INVALID: Spinnaker can't parse this camera's chunks
+        (seen with a Chameleon3). After a few in a row, stream without chunks; drops are then counted
+        from the stream's frame IDs instead of the camera's own counter."""
+        self._bad_chunks += 1
+        if not self._chunk_on or self._bad_chunks < 3:
+            return
+        self.cam.EndAcquisition()
+        off = self._set("ChunkModeActive", "bool", False, quiet=True)
+        self.cam.BeginAcquisition()
+        self._chunk_on = not off
+        if off:
+            self._chunk_counter = self.line_status = False
+            self.warnings.append("chunk data invalid: chunk mode turned off, so drops are counted from the "
+                                 "stream's frame IDs (set chunk_frame_counter: false for this camera)")
+        else:
+            self.warnings.append("chunk data invalid, and chunk mode could not be turned off: no frames")
 
     def _to_bgr(self, arr: np.ndarray) -> np.ndarray:
         pf = self.pixel_format or ""
@@ -391,6 +454,12 @@ class FlirCamera(CameraBackend):
                     cam.EndAcquisition()
             except Exception as e:
                 self._close_problem(f"EndAcquisition: {e}")
+            was = getattr(self, "_chunk_was", None)
+            if getattr(self, "_chunk_on", False) and was is not None and not was:
+                try:  # the camera keeps chunk mode until unplugged; leave it as found for SpinView and others
+                    self._set("ChunkModeActive", "bool", False, cam.GetNodeMap(), quiet=True)
+                except Exception as e:
+                    self._close_problem(f"ChunkModeActive: {e}")
             try:
                 if cam.IsInitialized():
                     cam.DeInit()
@@ -413,6 +482,8 @@ class FlirCamera(CameraBackend):
         d = super().info()
         d.update({"model": getattr(self, "model", ""), "serial": getattr(self, "serial", ""),
                   "firmware": getattr(self, "firmware", ""), "pixel_format": getattr(self, "pixel_format", None),
+                  "link_speed": getattr(self, "link_speed", ""),
+                  "link_limit_mb_s": getattr(self, "link_limit_mb_s", None),
                   "line_status": getattr(self, "line_status", False),
                   "chunk_frame_counter": getattr(self, "_chunk_counter", False),
                   "timestamp_increment_ns": getattr(self, "timestamp_increment_ns", None),

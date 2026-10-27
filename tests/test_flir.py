@@ -98,18 +98,28 @@ def IsWritable(p):
     return getattr(p, "n", p).writable
 
 
+SPINNAKER_IMAGE_STATUS_IMAGE_CHUNK_DATA_INVALID = 11
+
+
+def Image_GetImageStatusDescription(status):
+    return {0: "Image has no error", 11: "Image has invalid chunk data"}.get(status, "Image is incomplete")
+
+
 class NodeMap(dict):
     def GetNode(self, name):
         return self.get(name)
 
 
 class Image:
-    def __init__(self, arr, ts, fid, incomplete=False):
-        self.arr, self.ts, self.fid, self.incomplete = arr, ts, fid, incomplete
+    def __init__(self, arr, ts, fid, incomplete=False, status=0):
+        self.arr, self.ts, self.fid, self.incomplete, self.status = arr, ts, fid, incomplete, status
         self.released = False
 
     def IsIncomplete(self):
         return self.incomplete
+
+    def GetImageStatus(self):
+        return self.status
 
     def GetNDArray(self):
         return self.arr
@@ -320,7 +330,8 @@ class System:
 def fake_pyspin(cams):
     mod = types.ModuleType("PySpin")
     for name in ("SpinnakerException", "CEnumerationPtr", "CFloatPtr", "CIntegerPtr", "CBooleanPtr",
-                 "CStringPtr", "CEnumEntryPtr", "IsAvailable", "IsReadable", "IsWritable", "System"):
+                 "CStringPtr", "CEnumEntryPtr", "IsAvailable", "IsReadable", "IsWritable", "System",
+                 "SPINNAKER_IMAGE_STATUS_IMAGE_CHUNK_DATA_INVALID", "Image_GetImageStatusDescription"):
         setattr(mod, name, globals()[name])
     System.current = System(cams)
     return mod
@@ -579,3 +590,78 @@ def test_two_cameras_share_spinnaker(pyspin):
     assert sysobj.released
     for be in (be_a, be_b):
         assert not [w for w in be.info()["warnings"] if w.startswith("close")]
+
+
+def test_missing_frames_are_explained(pyspin):
+    """No silent blank view: USB 2 links, a stuck TriggerMode, incomplete images and timeouts are reported."""
+    nodes = chameleon3_nodes()
+    nodes["TriggerMode"] = Node("enum", "On", ["Off", "On"], writable=False)
+    nodes["DeviceLinkThroughputLimit"] = Node("int", 380_000_000, lo=1_000_000, hi=380_000_000)
+    cam = Camera(nodes=nodes)
+    cam.tl["DeviceCurrentSpeed"] = Node("enum", "HighSpeed", ["LowSpeed", "FullSpeed", "HighSpeed", "SuperSpeed"])
+    pyspin(cam)
+    be = make_backend(dict(CFG, link_limit_mb_s=150))
+    be.open()
+    info = be.info()
+    assert info["link_speed"] == "HighSpeed" and any("not SuperSpeed" in w for w in info["warnings"])
+    assert any("TriggerMode is still On" in w for w in info["warnings"])
+    assert nodes["DeviceLinkThroughputLimit"].value == 150_000_000 and info["link_limit_mb_s"] == 150
+    cam.queue = [Image(np.zeros((48, 64), np.uint8), 0, 1000, incomplete=True)]
+    assert be.grab(0.1) is None and be.n_failed == 1 and be.last_problem.startswith("incomplete image")
+    assert be.grab(0.01) is None and be.n_timeouts == 1 and be.last_problem.startswith("no image within")
+    be.close()
+
+
+def test_camtest_all_cameras_at_once(pyspin):
+    from mavric.video.check import cameras_check
+
+    pyspin(Camera(serial="111", realtime=True), Camera(serial="222", realtime=True))
+    reps = cameras_check([dict(CFG, id="cam0", device="111"), dict(CFG, id="cam1", device="222")], seconds=1.0)
+    assert [r["info"]["serial"] for r in reps] == ["111", "222"]
+    assert all(r["frames"] >= 25 and r["timeouts"] == 0 and r["failed_frames"] == 0 for r in reps)
+
+
+def test_status_explains_a_camera_without_frames(pyspin):
+    from mavric.acquire import AcquisitionController, stall_text
+    from mavric.config import RoiSet, TagMap, load_rig
+
+    pyspin(Camera())  # connects, but every grab times out
+    ctl = AcquisitionController(load_rig(), TagMap(), RoiSet())
+    try:
+        ctl.connect_camera(dict(CFG, id="cam1"))
+        time.sleep(0.3)
+        c = ctl.status()["cameras"]["cam1"]
+    finally:
+        ctl.shutdown()
+    assert c["frames"] == 0 and c["timeouts"] >= 1
+    text = stall_text(c, after_s=0.1)
+    assert text.startswith("NO FRAMES") and "no image within" in text
+    assert stall_text(c, after_s=60) is None
+
+
+def test_invalid_chunk_data_turns_chunks_off_and_close_restores_the_camera(pyspin):
+    """A Chameleon3 whose chunks Spinnaker can't parse: every image is IMAGE_CHUNK_DATA_INVALID until
+    chunk mode is off. MAVRIC turns it off and keeps streaming, and never leaves chunk mode on behind it."""
+    cam = Camera()
+    pyspin(cam)
+    be = make_backend(CFG)
+    be.open()
+    assert cam.nodes["ChunkModeActive"].value is True and be.info()["chunk_frame_counter"]
+    bad = [Image(np.zeros((48, 64), np.uint8), 0, 1000 + k, incomplete=True, status=11) for k in range(3)]
+    cam.queue = bad + [cam._make(3)]
+    assert [be.grab(0.1) for _ in range(3)] == [None, None, None]
+    assert "invalid chunk data" in be.last_problem
+    assert cam.nodes["ChunkModeActive"].value is False and cam.streaming
+    fr = be.grab(0.1)
+    assert fr is not None and fr.hw_counter == 1003  # stream frame ID, no longer the chunk counter
+    info = be.info()
+    assert not info["chunk_frame_counter"] and any("chunk data invalid" in w for w in info["warnings"])
+    be.close()
+
+    cam2 = Camera()  # a healthy camera: chunk mode on while streaming, back off after close
+    pyspin(cam2)
+    be2 = make_backend(CFG)
+    be2.open()
+    assert cam2.nodes["ChunkModeActive"].value is True
+    be2.close()
+    assert cam2.nodes["ChunkModeActive"].value is False

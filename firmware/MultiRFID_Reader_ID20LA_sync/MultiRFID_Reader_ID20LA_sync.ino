@@ -11,12 +11,13 @@ Output lines (unchanged format, Multiple_RFID.m still parses them):
   <timestamp_us>,<TAGHEX>,<reader_number>   tag at reader in this round
   <timestamp_us>,NONE,0                      round without tags (heartbeat)
 Added by this variant:
-  <timestamp_us>,SYNC,0   sync pulse rising edge (LED on SYNC_PIN turns on)
+  <timestamp_us>,SYNC,0   sync pulse rising edge (the LED on SYNC_PINS turns on)
   <timestamp_us>,BOOT,0   once at start-up, marks a board reset
 
-Sync pulse: SYNC_PIN goes HIGH for SYNC_PULSE_US at random intervals in
-[SYNC_MIN_GAP_US, SYNC_MAX_GAP_US]. Wire an LED (with series resistor) that
-every camera can see, and optionally the same pin to a camera GPIO input.
+Sync pulse: every pin in SYNC_PINS goes HIGH for SYNC_PULSE_US at random
+intervals in [SYNC_MIN_GAP_US, SYNC_MAX_GAP_US]. Wire an LED (with series
+resistor) that every camera can see to the first pin, and the camera GPIO
+input, Intan and the audio divider to the same or the other pins.
 The random intervals make the pulse train self-identifying, so video and RFID
 can be aligned even when pulses are missed.
 
@@ -44,7 +45,10 @@ const unsigned long LOG_INTERVAL_US    = 125000UL; // sampling round, 125 ms = 8
 const unsigned long TAG_CLEAR_DELAY_MS = 50;       // clear lastTag if TIR low > 50 ms
 
 // SYNC PULSE
-const uint8_t       SYNC_PIN         = 52;         // free pin at the GND end of the MEGA's double header (was 22)
+// Every pin in SYNC_PINS gives the same pulse; they switch within ~10 us of each other, less than one
+// sample of the Intan (33 us) or the audio (21 us). One load per pin keeps each well under 20 mA.
+const uint8_t       SYNC_PINS[]      = {52, 50, 48}; // D52: the LED; D50, D48: camera / Intan / audio (D22 before 2026-10-27)
+const uint8_t       NUM_SYNC_PINS    = sizeof(SYNC_PINS) / sizeof(SYNC_PINS[0]);
 const unsigned long SYNC_PULSE_US    = 80000UL;    // LED on-time, >= 2 frame intervals: 80 ms ok down to 25 fps;
                                                    // e.g. 160000 for a 13 fps camera (keep rig.yaml sync.led_pulse_s equal)
 const unsigned long SYNC_MIN_GAP_US  = 2000000UL;  // rising edge to rising edge, min
@@ -74,6 +78,10 @@ Stream* readerStream(int idx) {
   }
 }
 
+void setSync(uint8_t level) {
+  for (uint8_t i = 0; i < NUM_SYNC_PINS; ++i) digitalWrite(SYNC_PINS[i], level);
+}
+
 unsigned long nextSyncGap() {
   return SYNC_MIN_GAP_US + (unsigned long)random((long)(SYNC_MAX_GAP_US - SYNC_MIN_GAP_US));
 }
@@ -98,8 +106,8 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 
-  pinMode(SYNC_PIN, OUTPUT);
-  digitalWrite(SYNC_PIN, LOW);
+  for (uint8_t i = 0; i < NUM_SYNC_PINS; ++i) pinMode(SYNC_PINS[i], OUTPUT);
+  setSync(LOW);
   randomSeed(analogRead(A0) ^ (micros() << 8));  // floating A0 as entropy
 
   unsigned long now = micros();
@@ -116,11 +124,11 @@ void loop() {
 
   // Sync pulse (wrap-safe unsigned arithmetic)
   if (syncHigh && (nowUs - syncEdgeUs) >= SYNC_PULSE_US) {
-    digitalWrite(SYNC_PIN, LOW);
+    setSync(LOW);
     syncHigh = false;
   }
   if (!syncHigh && (nowUs - syncEdgeUs) >= syncGapUs) {
-    digitalWrite(SYNC_PIN, HIGH);
+    setSync(HIGH);
     syncHigh = true;
     syncEdgeUs = nowUs;
     syncGapUs = nextSyncGap();

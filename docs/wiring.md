@@ -37,6 +37,10 @@ connections only add redundancy, or prepare later upgrades.
 | MEGA D52 + GND, through a 10 kΩ / 1 kΩ divider | M4 In 3 | shielded TS | sync pulse into the audio | **required with audio** |
 | M4 Out 1–4 | 4 powered speakers | balanced TRS | stimulus playback | optional (audio) |
 
+**Sync pins:** D52, D50 and D48 give the same pulse at the same moment (firmware `SYNC_PINS`). The rows above name
+D52, and every load may share it. Giving the camera, Intan and audio wires D50 or D48 instead leaves D52 to the LED
+and keeps each pin's current low.
+
 **Grounds:** every ground is common, except the camera's isolated OPTO_GND.
 - **Joined together:** the MEGA GND, the reader supply GND and every reader's pin 1.
 - **Camera:** it shares the PC's ground through USB. OPTO_GND (pin 7) is isolated and is only joined to the MEGA
@@ -106,14 +110,42 @@ After wiring, confirm which physical perch each reader serves:
 - **Cable runs:** for runs to the MEGA (typically 1–3 m), use a twisted pair or shielded cable for each signal (D0 with
   GND, TIR with GND). 9600 baud TTL is robust over that length.
 
+### 2.5 A reader that gives no readings
+
+The module sends a tag's ID **once**, when the tag enters its field, and holds Tag in Range (TIR, pin 6) high until
+it leaves. A multimeter on D0 (pin 9) always shows the idle level, close to the supply voltage (4.7–5 V from USB is
+normal), because the ID takes only about 17 ms. So the multimeter can't tell whether an ID was sent; TIR is what
+shows the reader's state. Work through these in order:
+
+1. **Find out which reader it is.** Run `mavric link-test` and hold a tag on each place in turn. Each line ends with
+   the reader number.
+2. **Remove every tag, then measure TIR.** It must be 0 V with no tag near.
+   - **TIR high with no tag:** the module believes a tag is in range, so it never sends a new one. Look for a stray
+     tag within ~20 cm, e.g. a spare tag in or under the perch, or a tag box set down on the cage. Then power-cycle
+     the reader supply, not only the MEGA: opening the serial port resets the MEGA, which then forgets the ID, but a
+     tag that never left the field is never sent again.
+   - **Still high after power-cycling, with nothing near:** check that pin 2 (RES) is strapped to +5 V and that pin
+     11 has its supply. Then swap the module with a working one.
+3. **TIR goes high only with a tag, but there is still no reading:** the ID is not reaching the MEGA.
+   - **Pin 7 (format):** must be at GND **at power-up**. A loose pin 7 selects another output format, which the
+     firmware can't parse.
+   - **D0 wire:** check its continuity to the reader's RX pin in §2.2 (D19 / D17 / D15 / D10). Not the TX pin next
+     to it (D18 / D16 / D14): that pin is driven by the MEGA and receives nothing.
+   - **GND:** the reader's pin 1 and the supply GND must reach the MEGA GND. Check that the GND pins at the end of
+     the double header (next to the sync pins) are still seated after any rewiring there.
+4. **Swap test.** Swap this reader's D0 and TIR wires at the MEGA with a working reader's.
+   - **The fault follows the reader:** it's the module, its board or its cable.
+   - **The fault stays with the MEGA input:** it's that MEGA pin.
+
 ---
 
 ## 3. Arduino MEGA 2560: pin usage
 
 This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 
-> **Changed 2026-10-27:** the sync pulse moved from D22 to **D52**. Rigs wired earlier: move the LED, camera,
-> Intan and audio sync wires from D22 to D52 together with the firmware update.
+> **Changed 2026-10-27:** the sync pulse moved from D22 to **D52**, and **D50** and **D48** now give the same pulse.
+> Rigs wired earlier: move the LED, camera, Intan and audio sync wires from D22 to these pins together with the
+> firmware update.
 
 | MEGA pin | Function in firmware | Connect to | Notes |
 |---|---|---|---|
@@ -124,11 +156,12 @@ This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 | D19 (RX1), D17 (RX2), D15 (RX3) | reader 1–3 data in (9600) | ID-20LA pin 9 | hardware UARTs |
 | D10 | reader 4 data in (SoftwareSerial RX) | ID-20LA pin 9 | pin supports pin-change interrupts |
 | **D52** | **sync pulse out**: 80 ms HIGH at random 2–6 s intervals | 330 Ω → LED anode; 220 Ω → IR LED (§4.4); or 100 Ω → MOSFET gate (12 V LEDs, §4.2); optional camera pin 9 | each pulse is logged as `SYNC`. D52 sits at the GND end of the double header, beside the two GND pins. It is also the SPI clock (SCK), which is unused here |
+| **D50, D48** | **the same sync pulse** as D52 | camera pin 9 (§5.3), Intan DIGITAL IN 2 (§6.2), audio divider (§7.2) | they switch within ~10 µs of D52, less than one Intan or audio sample. One load per pin keeps each well under 20 mA. Only connect inputs here, never another device's output |
 | D13 | on-board LED: lit while any reader has a tag | — | visual check only |
 | D18 (TX1), D16 (TX2), D14 (TX3), D11 (SoftSerial TX) | driven by the UARTs | **leave unconnected** | do not use as inputs |
 | A0 | random seed for the sync intervals | **leave unconnected** | must float |
 | D20, D21 | free, interrupt-capable | — | reserved for the future camera exposure-active input |
-| D22–D51, D53, other analog pins | free | — | |
+| D22–D47, D49, D51, D53, other analog pins | free | — | |
 
 ---
 
@@ -348,7 +381,8 @@ The opto-isolated limits apply when the camera is powered over USB (manual §6.5
 
 **Wiring**
 1. MEGA **GND → pin 7 (OPTO_GND)**, *before* any signal.
-2. MEGA **D52 → pin 9 (OPTO_IN)**. Use the same D52 that drives the LED; the LED stays connected.
+2. MEGA **D52 → pin 9 (OPTO_IN)**. Either share the D52 that drives the LED (the LED stays connected), or use D50 or
+   D48, which give the same pulse.
 
 **Check:** in **SpinView**, set Line0 to *Input* and watch *LineStatus* flip on each flash.
 - If it never goes high, the 5 V pulse may not drive the opto input hard enough. Buffer it, for example with a
@@ -401,7 +435,7 @@ switch all pins low.
 |---|---|---|
 | I/O Arduino pin (e.g. **D30**) | Intan **DIGITAL IN 1** BNC centre | event TTL (*hold* rule = high while a bird is on the perch → **episodic triggered recording**; *pulse* rule = event marker) |
 | I/O Arduino **GND** | BNC shield **and** Intan **I/O GND** binding post (rear) | common reference |
-| RFID MEGA **D52** (sync pulse) | Intan **DIGITAL IN 2** BNC centre (+ MEGA GND → shield / I/O GND) | the same random pulse train as in the RFID log and the video, so ephys ↔ RFID ↔ video align offline |
+| RFID MEGA **D52** (sync pulse; or D50 / D48, same pulse) | Intan **DIGITAL IN 2** BNC centre (+ MEGA GND → shield / I/O GND) | the same random pulse train as in the RFID log and the video, so ephys ↔ RFID ↔ video align offline |
 
 **Levels.** Intan digital inputs read 0–0.8 V as low and 2.0–5.5 V as high, and must **never exceed 5.5 V**. A 5 V
 Arduino pin is fine, and a 100–220 Ω series resistor is a cheap safeguard. A 3.3 V board would also work.
@@ -439,7 +473,7 @@ input, which draws negligible current.
 | MOTU M4 USB-C | PC USB | USB-C | Power and audio. Install the MOTU M-Series driver: MAVRIC uses its ASIO driver. |
 | NT5 "micA" | M4 **In 1** (front combo jack) | XLR, balanced | Press **48V** for input 1: the NT5 needs phantom power. |
 | NT5 "micB" | M4 **In 2** | XLR, balanced | Press **48V** for input 2. |
-| RFID MEGA **D52** + GND, through the divider below | M4 **In 3** (rear line input) | shielded mono cable, ¼" TS plug (or TRS with ring to sleeve) | Records the sync pulse. Keep the LED and any Intan wiring on D52 as they are. |
+| RFID MEGA **D52** (or D50 / D48, same pulse) + GND, through the divider below | M4 **In 3** (rear line input) | shielded mono cable, ¼" TS plug (or TRS with ring to sleeve) | Records the sync pulse. Keep the LED and any Intan wiring on D52 as they are. |
 | M4 **Out 1–4** (rear, balanced ¼" TRS) | powered speakers spk1–spk4 | TRS–XLR or TRS–TRS, balanced | Match `audio.speakers` in `rig.yaml`. The RCA outputs mirror Out 1–4. |
 
 **M4 front panel**

@@ -57,7 +57,7 @@ Example targets:
 involved in the motor.
 - **Why a separate board:** it keeps the RFID MEGA's timing untouched. Every command is echoed back with the board's
   `micros()`, so output times can be placed on the session clock exactly as RFID reads are.
-- **Reusing the RFID MEGA:** it has free pins (D22–D51, D53), so the same command protocol can be added to it later if a
+- **Reusing the RFID MEGA:** it has free pins (D22–D47, D49, D51, D53), so the same command protocol can be added to it later if a
   second board is unwanted.
 
 ## 3. Intan (your RHD recording controller)

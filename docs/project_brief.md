@@ -281,3 +281,4 @@ of individuals over time.
 | 2026-10-23 | Video settings in the acquire GUI (config/video.yaml); raw recording by default (lossless FFV1 chunks of ~2 GB); `mavric compress` → `<name>_compressed.mp4` with DeepLabCut-oriented defaults (H.264 CRF 18, keyframe every 30 frames, constant rate, optional 2× downscale) | Request by the project lead |
 | 2026-10-23 | All-cameras monitor view in acquisition; AU3 built: sound events in `mavric review` (audio lanes, listening, customizable types, emitter = tagged subject / system / unknown with suggestions, automatic proposals, Audacity/Raven exchange) | Request by the project lead |
 | 2026-10-27 | Sync pulse moved from MEGA D22 to **D52** (firmware `SYNC_PIN`); the LED, camera, Intan and audio sync wires follow it | Project lead |
+| 2026-10-27 | **D50** and **D48** give the same sync pulse as D52 (firmware `SYNC_PINS`), so the LED keeps D52 and the camera, Intan and audio wires can have their own pins | Project lead |

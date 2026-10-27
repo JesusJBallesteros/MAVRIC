@@ -18,7 +18,7 @@ def _rig(args):
 def cmd_acquire(args):
     rig = _rig(args)
     if args.headless:
-        from .acquire import AcquisitionController, simulation_controller
+        from .acquire import AcquisitionController, simulation_controller, stall_text
 
         ctl = simulation_controller(rig, seed=args.seed) if args.sim else AcquisitionController(rig)
         try:
@@ -44,6 +44,7 @@ def cmd_acquire(args):
                 time.sleep(1)
                 st = ctl.status()
                 cams = " ".join(f"{k}:{v['fps']:.1f}fps rec={v['recorded']} drop={v['rec_dropped']}"
+                                + (f" {stall_text(v)}" if stall_text(v) else "")
                                 for k, v in st["cameras"].items())
                 rf = st.get("rfid", {})
                 au = st.get("audio")
@@ -219,34 +220,52 @@ def cmd_link_test(args):
 
 
 def cmd_camtest(args):
-    """Grab from one configured camera and report fps, drops, hardware clock and sync warnings."""
+    """Grab from configured cameras and report fps, drops, hardware clock and sync warnings."""
     from .config import resolve_path
-    from .video.check import camera_check
+    from .video.check import cameras_check
 
     rig = _rig(args)
     cams = {c["id"]: c for c in rig["cameras"]}
-    cid = args.cam or rig["cameras"][0]["id"]
-    if cid not in cams:
-        print(f"No camera {cid!r} in {rig['_path']} (have {sorted(cams)})")
+    if not cams:
+        print(f"No cameras in {rig['_path']}")
         return 2
-    cfg = dict(cams[cid])
-    if args.backend:
-        cfg["backend"] = args.backend
+    ids = list(cams) if args.cam == "all" else [args.cam or rig["cameras"][0]["id"]]
+    missing = [c for c in ids if c not in cams]
+    if missing:
+        print(f"No camera {missing[0]!r} in {rig['_path']} (have {sorted(cams)}, or 'all')")
+        return 2
+    cfgs = [dict(cams[c], **({"backend": args.backend} if args.backend else {})) for c in ids]
     world = None
-    if cfg.get("backend") == "synthetic":
+    if any(c.get("backend") == "synthetic" for c in cfgs):
         from .sim import SimWorld
 
         world = SimWorld.random(duration_s=3600, seed=0)
-    png = resolve_path(rig["paths"]["sessions_dir"]) / f"_camtest_{cid}.png"
-    print(f"testing {cid} ({cfg.get('backend')}) for {args.seconds:g} s ...")
-    rep = camera_check(cfg, args.seconds, world=world, save_png=png,
-                       led_pulse_s=float(rig["sync"].get("led_pulse_s", 0.08)))
+    pngs = [resolve_path(rig["paths"]["sessions_dir"]) / f"_camtest_{c}.png" for c in ids]
+    together = " at the same time" if len(ids) > 1 else ""
+    names = ", ".join(f"{c} ({cfg.get('backend')})" for c, cfg in zip(ids, cfgs))
+    print(f"testing {names}{together} for {args.seconds:g} s ...")
+    reps = cameras_check(cfgs, args.seconds, world=world, save_pngs=pngs,
+                         led_pulse_s=float(rig["sync"].get("led_pulse_s", 0.08)))
+    for cid, rep in zip(ids, reps):
+        _print_camtest(cid if len(ids) > 1 else "", rep)
+    return 0 if all(r["frames"] for r in reps) else 1
+
+
+def _print_camtest(cid: str, rep: dict) -> None:
+    if cid:
+        print(f"{cid}:")
     info = rep["info"]
-    print(f"  device   {info.get('model', '')} serial={info.get('serial', '')} fw={info.get('firmware', '')}")
+    link = f" usb={info['link_speed']}" if info.get("link_speed") else ""
+    if info.get("link_limit_mb_s"):
+        link += f" limit={info['link_limit_mb_s']:.0f} MB/s"
+    print(f"  device   {info.get('model', '')} serial={info.get('serial', '')} fw={info.get('firmware', '')}{link}")
     print(f"  image    {info.get('width')}x{info.get('height')} {info.get('pixel_format') or ''} "
           f"configured {info.get('fps', 0):.2f} fps")
     print(f"  grabbed  {rep['frames']} frames, measured {rep.get('measured_fps', 0):.2f} fps, "
-          f"incomplete {rep['failed_frames']}, camera drops {rep.get('camera_dropped', 'n/a')}")
+          f"incomplete {rep['failed_frames']}, timeouts {rep['timeouts']}, "
+          f"camera drops {rep.get('camera_dropped', 'n/a')}")
+    if rep.get("problem") and (rep["failed_frames"] or rep["timeouts"]):
+        print(f"  last problem: {rep['problem']}")
     if "host_interval_ms" in rep:
         print(f"  interval median {rep['host_interval_ms']['median']:.1f} ms, p99 {rep['host_interval_ms']['p99']:.1f} ms")
     hw = rep.get("hw_clock")
@@ -257,7 +276,6 @@ def cmd_camtest(args):
         print(f"  WARNING  {w}")
     if rep.get("snapshot"):
         print(f"  snapshot {rep['snapshot']}")
-    return 0 if rep["frames"] else 1
 
 
 def cmd_outputs(args):
@@ -559,8 +577,9 @@ def main(argv=None):
     lt.add_argument("--all", action="store_true", help="also print NONE heartbeat lines")
     lt.set_defaults(fn=cmd_link_test)
 
-    ct = sub.add_parser("camtest", help="grab from one camera: fps, drops, hardware clock, sync warnings")
-    ct.add_argument("--cam", default=None, help="camera id from rig.yaml (default: first)")
+    ct = sub.add_parser("camtest", help="grab from one camera (or all at once): fps, drops, hardware clock, sync warnings")
+    ct.add_argument("--cam", default=None, help="camera id from rig.yaml (default: first), or 'all' to grab from "
+                    "every camera at the same time")
     ct.add_argument("--seconds", type=float, default=5.0)
     ct.add_argument("--backend", default=None, help="override the backend, e.g. synthetic")
     ct.set_defaults(fn=cmd_camtest)

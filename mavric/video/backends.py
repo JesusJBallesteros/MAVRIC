@@ -37,7 +37,9 @@ class CameraBackend:
         self.fps = float(cfg.get("fps", 30))
         self.size: tuple[int, int] | None = None  # (width, height)
         self._grab_idx = 0
-        self.n_failed = 0
+        self.n_failed = 0  # incomplete / undecodable frames
+        self.n_timeouts = 0  # grab() calls that got no frame in time
+        self.last_problem: str | None = None  # why the last frame was missing, for the status line
         self.hw_tick_hz: float | None = None
 
     def open(self) -> None:

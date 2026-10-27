@@ -8,7 +8,7 @@ import time
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ..acquire import AcquisitionController, simulation_controller
+from ..acquire import AcquisitionController, simulation_controller, stall_text
 from ..config import Roi, resolve_path
 from ..core import now
 from ..rfid.serial_reader import Presence, list_ports
@@ -283,10 +283,10 @@ class AcquireWindow(QtWidgets.QMainWindow):
                 self.b_cam.setText("Disconnect camera")
                 self._refresh_views(select=cfg["id"])
                 info = self.ctl.cams[cfg["id"]].backend.info()
-                warn = info.get("warnings")
+                warn = info.get("warnings") or []
                 self.statusBar().showMessage(
                     f"Camera {cfg['id']}: {info.get('width')}x{info.get('height')} @ {info.get('fps'):.1f} fps"
-                    + (f"  (settings not applied: {len(warn)})" if warn else ""), 6000)
+                    + (f"  ({'; '.join(warn[:2])})" if warn else ""), 10000)
 
         self._run(lambda: self.ctl.connect_camera(cfg), done, f"Connecting camera {cfg['id']}")
 
@@ -565,6 +565,8 @@ class AcquireWindow(QtWidgets.QMainWindow):
                 s += f", recorded {c['recorded']}, dropped {c['rec_dropped']}, queue {c['queue']}"
             if c["error"]:
                 s += f"  ERROR {c['error']}"
+            elif stall := stall_text(c):
+                s += f"  {stall}"
             parts.append(s)
         au = st.get("audio")
         if au is not None and "recorded_s" in au:
@@ -605,9 +607,13 @@ class AcquireWindow(QtWidgets.QMainWindow):
             if cid == self.ctl.roi_camera:
                 parts.append("ROIs")
             err = c.get("error")
+            stall = None if err else stall_text(c)
             if err:
                 parts.append(f"ERROR {err}")
-            self.grid.update_tile(cid, th.latest, "  ·  ".join(parts), alert=bool(err or c.get("rec_dropped")))
+            elif stall:
+                parts.append(stall)
+            self.grid.update_tile(cid, th.latest, "  ·  ".join(parts),
+                                  alert=bool(err or stall or c.get("rec_dropped")))
 
     def _update_led(self, img: np.ndarray) -> None:
         sync = self.video.roiset().sync

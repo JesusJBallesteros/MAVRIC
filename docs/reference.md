@@ -167,7 +167,25 @@ All models are global shutter, which gives no motion distortion with flapping wi
   cage size and the sensor size (1/2" for the 13Y3, 1/3" for the 13S2).
 - **USB 3.0 port:** use a PCIe 2.0 host controller or a built-in USB 3 port, with a 3–5 m cable. A 5 m cable is not
   recommended on laptops.
-- **Bandwidth:** 1280×1024 Mono8 at 30 fps is about 39 MB/s per camera, so two cameras on one controller are fine.
+- **Bandwidth:** 1280×1024 Mono8 at 30 fps is about 39 MB/s per camera, so two cameras on one controller are
+  normally fine. Each camera still sends every frame in a burst at full link speed, though, and some host controllers
+  then lose packets. If a camera works alone but delivers only incomplete images next to another one, cap each
+  camera's share with `link_limit_mb_s` (e.g. `150`) under that camera in `rig.yaml`. Or give it its own USB 3
+  controller (a PCIe card).
+- **A camera connects but shows no image:** the status line says `NO FRAMES for N s` and counts incomplete images
+  and timeouts, with the last reason. Compare `mavric camtest --cam cam1` (alone) with `mavric camtest --cam all`
+  (every camera at once).
+  - **Incomplete images:** the USB link. Check that `usb=SuperSpeed` appears in the camtest output (not
+    `HighSpeed`, which is USB 2: wrong port, cable or hub). If the problem appears only with `all`, set
+    `link_limit_mb_s`.
+  - **Incomplete images, "chunk data invalid" (`IMAGE_CHUNK_DATA_INVALID`):** Spinnaker can't parse the extra
+    per-frame data that MAVRIC turns on for the camera's frame counter (seen with a Chameleon3). MAVRIC now turns it
+    off by itself after 3 such images and keeps streaming; drops are then counted from the stream's frame IDs. To
+    skip the attempt, set `chunk_frame_counter: false` for that camera. The camera keeps this setting until it is
+    unplugged, so if SpinView shows the same error, unplug the camera once. MAVRIC now turns it back off when it
+    disconnects.
+  - **Timeouts:** the camera is not sending. The camtest warns if `TriggerMode` is still On, e.g. left on in a
+    saved SpinView user set; turn it off in SpinView. Also close SpinView before connecting in MAVRIC.
 - **Mounting:** mount the camera on a heat-conducting bracket (it runs warm). Operating range is 0–45 °C and 20–80 %
   humidity, non-condensing.
 - **Mono vs colour:** mono models have no IR-cut filter and can work with 850 nm IR lighting. Colour models block IR
