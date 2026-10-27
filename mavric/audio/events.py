@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from ..config import read_yaml
 from ..session import Session
 
 EVENTS_FILE = "sound_events.csv"
@@ -120,9 +121,8 @@ def load_types(path: str | Path) -> list[str]:
     p = Path(path)
     if not p.exists():
         return list(DEFAULT_TYPES)
-    with open(p, encoding="utf-8") as f:
-        d = yaml.safe_load(f) or {}
-    types = [str(t) for t in (d.get("types") or []) if str(t).strip()]
+    d = read_yaml(p)
+    types =[str(t) for t in (d.get("types") or []) if str(t).strip()]
     return types or list(DEFAULT_TYPES)
 
 

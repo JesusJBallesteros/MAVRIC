@@ -32,6 +32,8 @@ from pathlib import Path
 
 import yaml
 
+from ..config import read_yaml
+
 # (key, label, default, kind) per parameter; kind in str|int|float|bool
 DEVICE_TYPES: dict[str, dict] = {
     "arduino_io": {
@@ -167,9 +169,8 @@ class OutputsConfig:
         path = Path(path)
         if not path.exists():
             return cls()
-        with open(path, encoding="utf-8") as f:
-            d = yaml.safe_load(f) or {}
-        devices = {str(k): dict(v or {}) for k, v in (d.get("devices") or {}).items()}
+        d = read_yaml(path)
+        devices ={str(k): dict(v or {}) for k, v in (d.get("devices") or {}).items()}
         rules = [Rule.from_dict(r) for r in (d.get("rules") or [])]
         clips = [dict(c) for c in (d.get("clips") or [])]
         cfg = cls(devices, rules, clips)

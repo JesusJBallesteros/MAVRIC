@@ -15,28 +15,21 @@ antennas:
   4: PlaceD
 
 cameras:
-  # The first camera is the ROI camera: place ROIs and the sync LED box are drawn on its image.
+  # One entry per camera, each with its own id. The first camera is the ROI camera:
+  # place ROIs and the sync LED box are drawn on its image.
   - id: cam0
-    backend: flir      # basler | flir | opencv | file | synthetic
-    device: ""           # basler/flir: serial number ("" = first found); opencv: index; file: video path
-    fps: 30
-    exposure_us: 8000
+    backend: flir          # flir (Spinnaker/PySpin, e.g. a Chameleon3) | basler | opencv | file | synthetic
+    device: ""             # flir/basler: serial number ("" = first found; `mavric ports` lists them); opencv: index; file: video path
+    fps: 30                # CM3-U3-13Y3M: up to 91 fps Mono8 full frame; 13S2: 30; 28S4: 13 (see README)
+    exposure_us: 8000      # must be shorter than 1/fps
     gain_db: 0.0
-    pixel_format: Mono8  # Mono8 | BGR8 (basler); opencv delivers BGR
-    line_status: false   # Chameleon3 has no per-frame line status: the sync LED in the image is used
-    record: continuous   # continuous | triggered (only clips from clip rules: Outputs... -> Camera clips)
-  # FLIR / Point Grey through Spinnaker (PySpin), e.g. a Chameleon3:
-  # - id: cam0
-  #   backend: flir
-  #   device: ""             # camera serial number ("" = first found); `mavric ports` lists them
-  #   fps: 30                # CM3-U3-13Y3M: up to 91 fps Mono8 full frame; 13S2: 30; 28S4: 13 (see README)
-  #   exposure_us: 8000      # must be shorter than 1/fps
-  #   gain_db: 0.0
-  #   pixel_format: Mono8    # Mono8 | BGR8 (colour models: on-board RGB, else raw Bayer demosaiced)
-  #   chunk_frame_counter: true  # camera's own frame counter -> true camera-side drop count
-  #   line_status: false     # Chameleon3 has no per-frame line-status chunk (Blackfly S: true works)
-  #   record: continuous
-  # - id: cam1           # e.g. a second camera that only records RFID-triggered clips
+    pixel_format: Mono8    # Mono8 | BGR8 (colour models: on-board RGB, else raw Bayer demosaiced); opencv delivers BGR
+    chunk_frame_counter: true  # flir: the camera's own frame counter -> true camera-side drop count
+    line_status: false     # Chameleon3 has no per-frame line status, so the sync LED in the image is used (Blackfly S: true works)
+    record: continuous     # continuous | triggered (only clips from clip rules: Outputs... -> Camera clips)
+  # A second camera: delete "# " (the hash and the space after it) from each line below,
+  # so "- id:" lines up with the "- id:" above, and give it its own serial number.
+  # - id: cam1             # e.g. a camera that only records RFID-triggered clips
   #   backend: flir
   #   device: "40000001"
   #   fps: 30

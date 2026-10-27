@@ -617,7 +617,13 @@ def main(argv=None):
         args.pytest_args = extra  # e.g. mavric selftest -k sync -x
     elif extra:
         p.error(f"unrecognized arguments: {' '.join(extra)}")
-    return args.fn(args)
+    from .config import ConfigError
+
+    try:
+        return args.fn(args)
+    except ConfigError as e:  # a broken config file: say where, without a traceback
+        print(f"mavric: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

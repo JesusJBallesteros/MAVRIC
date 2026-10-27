@@ -51,6 +51,30 @@ def init_config(root: Path | None = None) -> list[Path]:
     return made
 
 
+class ConfigError(ValueError):
+    """A config file that cannot be used; the message names the file and line and how to fix it."""
+
+
+def read_yaml(path: str | Path) -> dict:
+    """Parse a YAML config file. A syntax error becomes a ConfigError that shows the offending line."""
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+    try:
+        return yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        msg = f"{path} is not valid YAML"
+        mark = getattr(e, "problem_mark", None)
+        if mark is not None:
+            lines = text.splitlines()
+            prefix = f"  line {mark.line + 1}: "
+            msg += (f": {getattr(e, 'problem', None) or e}\n{prefix}{lines[mark.line] if mark.line < len(lines) else ''}"
+                    f"\n{' ' * (len(prefix) + mark.column)}^")
+        msg += ("\nUsually this is the indentation: use spaces, not tabs, and start the items of one list"
+                " (e.g. each '- id:' under cameras:) in the same column."
+                f"\nFix that line, or rename the file to fall back to the defaults (fresh copies are in {EXAMPLES_DIR}).")
+        raise ConfigError(msg) from None
+
+
 # Fallback colours for pigeons without one in tags.csv: validated categorical order
 # (adjacent-pair CVD-safe; identity is always also given by name labels)
 CATEGORICAL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
@@ -146,11 +170,15 @@ def load_rig(path: str | Path | None = None) -> dict:
         if path is None and not resolve_path("config/rig.yaml").exists():
             init_config()
         path = resolve_path(path or "config/rig.yaml")
-    user = {}
-    if path.exists():
-        with open(path, encoding="utf-8") as f:
-            user = yaml.safe_load(f) or {}
+    user = read_yaml(path) if path.exists() else {}
     rig = _deep_merge(DEFAULT_RIG, user)
+    rig["cameras"] = rig["cameras"] or []  # "cameras:" with every entry commented out
+    if not isinstance(rig["cameras"], list) or not all(isinstance(c, dict) for c in rig["cameras"]):
+        raise ConfigError(f"{path}: cameras: must be a list of entries that each start with '- id:'")
+    ids = [str(c.get("id", "cam0")) for c in rig["cameras"]]
+    if dup := sorted({i for i in ids if ids.count(i) > 1}):
+        raise ConfigError(f"{path}: camera id {', '.join(dup)} is used by more than one entry under cameras:."
+                          " Give each camera its own id (cam0, cam1, ...).")
     rig["antennas"] = {int(k): str(v) for k, v in rig["antennas"].items()}
     for k in ("inputs", "speakers"):
         rig["audio"][k] = {int(c): str(n) for c, n in (rig["audio"].get(k) or {}).items()}

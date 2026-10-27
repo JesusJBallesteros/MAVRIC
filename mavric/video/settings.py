@@ -23,6 +23,8 @@ from pathlib import Path
 
 import yaml
 
+from ..config import read_yaml
+
 
 @dataclass(frozen=True)
 class Param:
@@ -100,8 +102,7 @@ class VideoSettings:
         p = Path(path)
         if not p.exists():
             return cls()
-        with open(p, encoding="utf-8") as f:
-            d = yaml.safe_load(f) or {}
+        d = read_yaml(p)
         return cls({str(k): dict(v or {}) for k, v in (d.get("cameras") or {}).items()}, dict(d.get("video") or {}))
 
     def save(self, path: str | Path) -> None:
