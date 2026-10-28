@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1100" width="1500" height="1100" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
-  <title>MAVRIC wiring: PC, Arduino MEGA, four ID-20LA readers, IR sync LED, two Chameleon3 cameras, MOTU M4 audio, optional I/O Arduino and Intan</title>
+  <title>MAVRIC wiring: PC, Arduino MEGA, four ID-20LA readers, red sync LED, two Chameleon3 cameras, MOTU M4 audio, optional I/O Arduino and Intan</title>
   <defs>
     <style>
       .box { fill: #ffffff; stroke: #52514e; stroke-width: 1.5; }
@@ -102,23 +102,25 @@
   <text x="440" y="504" class="t">D10 (SoftSerial)</text>
   <text x="440" y="524" class="t">D5</text>
   <text x="440" y="599" class="t">GND</text>
-  <text x="682" y="474" class="t" text-anchor="end">D52 SYNC</text>
+  <text x="682" y="474" class="t" text-anchor="end">D52 LED</text>
+  <text x="682" y="494" class="t" text-anchor="end">D50 audio</text>
+  <text x="682" y="514" class="t" text-anchor="end">D48 spare</text>
   <text x="682" y="599" class="t" text-anchor="end">GND</text>
   <text x="610" y="290" class="s" text-anchor="middle">leave unconnected:</text>
   <text x="610" y="306" class="s" text-anchor="middle">D18 · D16 · D14 (TX)</text>
   <text x="610" y="322" class="s" text-anchor="middle">D11 · A0 (seed)</text>
   <text x="610" y="380" class="s" text-anchor="middle">D13 on-board LED</text>
   <text x="610" y="396" class="s" text-anchor="middle">= a tag is present</text>
-  <text x="610" y="540" class="s" text-anchor="middle">D52: 80 ms pulse at random</text>
-  <text x="610" y="556" class="s" text-anchor="middle">2–6 s, logged as SYNC</text>
+  <text x="610" y="548" class="s" text-anchor="middle">D52, D50, D48: same 80 ms</text>
+  <text x="610" y="564" class="s" text-anchor="middle">pulse at random 2–6 s,</text>
+  <text x="610" y="580" class="s" text-anchor="middle">logged as SYNC</text>
   <path d="M270 700 H400 V595 H430" class="gnd"/>
   <text x="285" y="692" class="s">common GND</text>
 
-  <!-- IR sync LED on D52 -->
+  <!-- red sync LED on D52 -->
   <path d="M690 470 H760" class="syn"/>
-  <circle cx="720" cy="470" r="4" fill="#eb6834"/>
   <rect x="760" y="462" width="44" height="16" rx="2" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
-  <text x="782" y="495" class="s" text-anchor="middle">220 Ω</text>
+  <text x="782" y="495" class="s" text-anchor="middle">330 Ω</text>
   <path d="M804 470 H820" class="syn"/>
   <path d="M820 458 L820 482 L842 470 Z" fill="#eb6834"/>
   <path d="M842 458 V482" class="syn"/>
@@ -126,16 +128,17 @@
   <path d="M842 470 H858 V500" class="gnd"/>
   <path d="M848 500 H868 M852 506 H864 M856 512 H860" class="gnd"/>
   <text x="878" y="510" class="s">MEGA GND</text>
-  <text x="740" y="420" class="t">IR sync LED · OIS-330 740 (740 nm)</text>
-  <text x="740" y="436" class="s">anode = marked end · ≈ 15 mA</text>
+  <text x="740" y="410" class="t">red sync LED (visible)</text>
+  <text x="740" y="426" class="s">anode = long leg · ≈ 9 mA</text>
   <text x="740" y="540" class="s">Aim it at both cameras; draw the SYNC</text>
-  <text x="740" y="556" class="s">box over it on cam0 (wiring.md §4.4).</text>
-  <text x="740" y="572" class="s">Two LEDs: in series with one 100 Ω.</text>
+  <text x="740" y="556" class="s">box over it on cam0 (wiring.md §4).</text>
+  <text x="740" y="572" class="s">A short tube hides it from the birds.</text>
 
-  <!-- D52 sync bus down to Intan and the audio interface -->
-  <path d="M720 470 V990" class="syn"/>
-  <text x="728" y="640" class="s">same D52 pulse to</text>
-  <text x="728" y="656" class="s">audio (and Intan)</text>
+  <!-- D50 to the audio divider; D48 (spare) to Intan -->
+  <path d="M690 490 H730 V990" class="syn"/>
+  <text x="738" y="700" class="s">D50: same pulse,</text>
+  <text x="738" y="716" class="s">audio sync only</text>
+  <path d="M690 510 H712 V960" class="syn opt"/>
 
   <!-- cameras -->
   <rect x="1060" y="200" width="400" height="130" rx="6" class="box"/>
@@ -143,7 +146,7 @@
   <text x="1075" y="242" class="t">serial 12345678 · ROI camera</text>
   <text x="1075" y="260" class="s">perch ROIs and the SYNC box are drawn on its image</text>
   <text x="1075" y="278" class="s">record: continuous video, 30 fps</text>
-  <text x="1075" y="302" class="s">GPIO not needed. Optional: D52 → pin 9 OPTO_IN,</text>
+  <text x="1075" y="302" class="s">GPIO not needed. Optional: D48 → pin 9 OPTO_IN,</text>
   <text x="1075" y="318" class="s">MEGA GND → pin 7 OPTO_GND (wiring.md §5.3)</text>
 
   <rect x="1060" y="350" width="400" height="130" rx="6" class="box"/>
@@ -151,7 +154,7 @@
   <text x="1075" y="392" class="t">serial 12345679 · record: triggered</text>
   <text x="1075" y="410" class="s">clips only, while RFID rules match:</text>
   <text x="1075" y="428" class="s">acquire → Outputs… → Camera clips</text>
-  <text x="1075" y="452" class="s">keep the IR sync LED in view too</text>
+  <text x="1075" y="452" class="s">keep the sync LED in view too</text>
   <text x="1075" y="468" class="s">(clips are timed with the same pulses)</text>
 
   <!-- optional I/O Arduino and Intan -->
@@ -167,11 +170,11 @@
   <text x="345" y="872" class="h">Intan RHD controller (optional)</text>
   <text x="345" y="908" class="t">DIGITAL IN 1 ◂ I/O Arduino D30</text>
   <text x="345" y="924" class="s">event TTL / triggered recording</text>
-  <text x="345" y="964" class="t">DIGITAL IN 2 ◂ MEGA D52</text>
+  <text x="345" y="964" class="t">DIGITAL IN 2 ◂ MEGA D48</text>
   <text x="345" y="980" class="s">sync pulses into the ephys data</text>
   <text x="345" y="1000" class="s">I/O GND ◂ both Arduino GNDs</text>
-  <path d="M720 960 H600" class="syn opt"/>
-  <circle cx="720" cy="960" r="4" fill="#eb6834"/>
+  <path d="M712 960 H600" class="syn opt"/>
+  <text x="612" y="950" class="s">D48 (spare)</text>
 
   <!-- audio: microphones, sync divider, MOTU M4, speakers -->
   <rect x="760" y="860" width="140" height="36" rx="5" class="box"/>
@@ -182,18 +185,18 @@
   <path d="M900 928 H960" class="aud"/>
   <text x="904" y="870" class="s" font-size="11">XLR</text>
 
-  <path d="M720 990 H760" class="syn"/>
+  <path d="M730 990 H760" class="syn"/>
   <rect x="760" y="982" width="44" height="16" rx="2" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
   <text x="782" y="1016" class="s" text-anchor="middle">10 kΩ</text>
   <path d="M804 990 H960" class="syn"/>
   <circle cx="840" cy="990" r="3.5" fill="#eb6834"/>
   <path d="M840 990 V998" class="syn"/>
   <rect x="832" y="998" width="16" height="30" rx="2" fill="#ffffff" stroke="#eb6834" stroke-width="2"/>
-  <text x="854" y="1018" class="s">1 kΩ</text>
+  <text x="854" y="1018" class="s">1.8 kΩ</text>
   <path d="M840 1028 V1040" class="gnd"/>
   <path d="M830 1040 H850 M834 1046 H846 M838 1052 H842" class="gnd"/>
   <text x="860" y="1046" class="s">MEGA GND</text>
-  <text x="866" y="980" class="s" font-size="11">≈ 0.45 V, TS</text>
+  <text x="866" y="980" class="s" font-size="11">≈ 0.76 V, TRS</text>
   <text x="760" y="972" class="s" font-size="11">divider at the plug</text>
 
   <text x="960" y="822" class="h">MOTU M4 · USB-C ▸ PC · ASIO · 48 kHz</text>
@@ -201,7 +204,7 @@
   <text x="970" y="882" class="t">In 1 · 48V on</text>
   <text x="970" y="932" class="t">In 2 · 48V on</text>
   <text x="970" y="994" class="t">In 3 · sync</text>
-  <text x="970" y="1012" class="s" font-size="11">(rear line in)</text>
+  <text x="970" y="1012" class="s" font-size="11">(rear line in, tip/ring)</text>
   <text x="1192" y="882" class="t" text-anchor="end">Out 1</text>
   <text x="1192" y="922" class="t" text-anchor="end">Out 2</text>
   <text x="1192" y="962" class="t" text-anchor="end">Out 3</text>
@@ -230,7 +233,7 @@
     <path d="M170 0 H200" class="gnd"/><text x="208" y="4" class="s">GND</text>
     <path d="M255 0 H285" class="dat"/><text x="293" y="4" class="s">reader data D0</text>
     <path d="M395 0 H425" class="tir"/><text x="433" y="4" class="s">Tag-in-Range</text>
-    <path d="M530 0 H560" class="syn"/><text x="568" y="4" class="s">sync pulse (D52)</text>
+    <path d="M530 0 H560" class="syn"/><text x="568" y="4" class="s">sync pulse</text>
     <path d="M680 0 H710" class="aud"/><text x="718" y="4" class="s">microphone (XLR)</text>
     <path d="M840 0 H870" class="spk"/><text x="878" y="4" class="s">speaker line (TRS)</text>
     <path d="M1000 0 H1030" class="ttl opt"/><text x="1038" y="4" class="s">event TTL</text>

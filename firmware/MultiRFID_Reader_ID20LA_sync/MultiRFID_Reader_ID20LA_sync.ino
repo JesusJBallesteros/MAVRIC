@@ -15,9 +15,10 @@ Added by this variant:
   <timestamp_us>,BOOT,0   once at start-up, marks a board reset
 
 Sync pulse: every pin in SYNC_PINS goes HIGH for SYNC_PULSE_US at random
-intervals in [SYNC_MIN_GAP_US, SYNC_MAX_GAP_US]. Wire an LED (with series
-resistor) that every camera can see to the first pin, and the camera GPIO
-input, Intan and the audio divider to the same or the other pins.
+intervals in [SYNC_MIN_GAP_US, SYNC_MAX_GAP_US], one load per pin:
+  D52  the sync LED (with series resistor) that every camera can see
+  D50  the audio divider into the MOTU M4 In 3
+  D48  spare: Intan DIGITAL IN 2 or the camera GPIO input
 The random intervals make the pulse train self-identifying, so video and RFID
 can be aligned even when pulses are missed.
 
@@ -47,7 +48,7 @@ const unsigned long TAG_CLEAR_DELAY_MS = 50;       // clear lastTag if TIR low >
 // SYNC PULSE
 // Every pin in SYNC_PINS gives the same pulse; they switch within ~10 us of each other, less than one
 // sample of the Intan (33 us) or the audio (21 us). One load per pin keeps each well under 20 mA.
-const uint8_t       SYNC_PINS[]      = {52, 50, 48}; // D52: the LED; D50, D48: camera / Intan / audio (D22 before 2026-10-27)
+const uint8_t       SYNC_PINS[]      = {52, 50, 48}; // D52: LED; D50: audio In 3; D48: spare (D22 before 2026-10-27)
 const uint8_t       NUM_SYNC_PINS    = sizeof(SYNC_PINS) / sizeof(SYNC_PINS[0]);
 const unsigned long SYNC_PULSE_US    = 80000UL;    // LED on-time, >= 2 frame intervals: 80 ms ok down to 25 fps;
                                                    // e.g. 160000 for a 13 fps camera (keep rig.yaml sync.led_pulse_s equal)

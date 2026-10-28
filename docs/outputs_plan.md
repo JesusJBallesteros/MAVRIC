@@ -82,7 +82,7 @@ From the [Intan Recording Controller user guide](https://intantech.com/files/Int
     `get runmode`. MAVRIC can connect as a client and start or stop recordings by rule.
   - Check exact command names against the "RHX TCP Control" guide for the installed version.
 
-**Synchronisation for free.** Route the existing random **sync pulse (MEGA D52)** also to **Intan DIGITAL IN 2**. The
+**Synchronisation for free.** Route the existing random **sync pulse** (MEGA **D48**, the spare sync output) to **Intan DIGITAL IN 2**. The
 ephys file then contains the same pulse train as the RFID log and the video, so all three can be aligned offline to
 sub-millisecond on the Intan side. Each event TTL sent to DIGITAL IN 1 additionally marks *when MAVRIC acted*.
 
@@ -262,7 +262,7 @@ armed"** switch lets you rehearse rules without driving hardware.
    - Arduino → Intan DIN BNC (plus I/O GND)
    - LED via an NPN/MOSFET with a resistor
    - relay module
-   - MEGA D52 → Intan DIN 2 for sync
+   - MEGA D48 → Intan DIN 2 for sync
    - TMCM-1141: 24 V supply, motor, USB, optional limit switches, optional I/O Arduino TTL into a module input
 4. Bench test: LED pulse latency measured with the camera and the LED/SYNC tools.
 

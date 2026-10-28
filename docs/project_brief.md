@@ -282,3 +282,4 @@ of individuals over time.
 | 2026-10-23 | All-cameras monitor view in acquisition; AU3 built: sound events in `mavric review` (audio lanes, listening, customizable types, emitter = tagged subject / system / unknown with suggestions, automatic proposals, Audacity/Raven exchange) | Request by the project lead |
 | 2026-10-27 | Sync pulse moved from MEGA D22 to **D52** (firmware `SYNC_PIN`); the LED, camera, Intan and audio sync wires follow it | Project lead |
 | 2026-10-27 | **D50** and **D48** give the same sync pulse as D52 (firmware `SYNC_PINS`), so the LED keeps D52 and the camera, Intan and audio wires can have their own pins | Project lead |
+| 2026-10-28 | Final sync wiring: **D52** the sync LED only (a visible red LED, 330 Ω), **D50** the audio sync (10 kΩ / 1.8 kΩ divider, TRS tip = signal, ring = GND, into M4 In 3), **D48** spare for Intan or the camera opto input. The 12 V MOSFET sync LED option is dropped | Project lead |
