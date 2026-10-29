@@ -416,7 +416,7 @@ sessions/20261029_101500_demo/
 
 | File | Contents |
 |---|---|
-| `analysis/` | `sync_report.json` (clock fits, sync check **PASS**/FAIL), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), `sound_proposals.csv`, `annotated_<cam>.mp4` |
+| `analysis/` | `sync_report.json` (clock fits, sync check **PASS**/FAIL), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), sounds linked to places (`sound_events_linked.csv`, `call_rates.csv`, `playback_responses.csv`, `playback_by_subject.csv`), `sound_proposals.csv`, `annotated_<cam>.mp4`, `timeline/` ([reference](reference.md#3-analyze-mavric-analyze-session)) |
 | `<cam>_compressed.mp4` | The H.264 copy from `mavric compress` (every frame, constant rate) |
 
 The `pigeon` column name in the label and analysis tables is historical; it holds the subject name from `tags.csv`.
@@ -428,7 +428,9 @@ The `pigeon` column name in the label and analysis tables is historical; it hold
 | Step | Command | What you get |
 |---|---|---|
 | Review | `mavric review sessions/<session>` | Place labels (blind, then curate) and sound events. A start dialog asks your initials and whether to review video, audio or both. |
-| Analyze | `mavric analyze sessions/<session>` | The sync check (**PASS**/FAIL), RFID accuracy against your labels, bouts, time budgets and plots in `analysis/`. |
+| Analyze | `mavric analyze sessions/<session>` | The sync check (**PASS**/FAIL), RFID accuracy against your labels, bouts, time budgets, sounds per subject and place, answers to played sounds, and plots in `analysis/`. |
+| Render | `mavric render sessions/<session>` | The annotated video; with audio, the sound and a spectrogram strip. |
+| Timeline | `mavric timeline sessions/<session>` | Audio and label tracks on the video's clock for Audacity, Ethograph or BORIS. |
 | Compress | `mavric compress sessions/<session>` | `<cam>_compressed.mp4`, for sharing and DeepLabCut. The raw files are kept. |
 
 How each window works, the keys and the analysis outputs: the [README](../README.md).

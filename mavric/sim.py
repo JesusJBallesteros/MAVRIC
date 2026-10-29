@@ -339,8 +339,15 @@ def simulate_session(
     audio: bool = False,
     audio_model=None,
     audio_sync: bool = True,
+    playback_every_s: float = 0.0,
+    sound_labels: bool = False,
 ) -> Session:
-    """Write a complete synthetic session (video, frame sidecar, RFID log, labels; optionally audio)."""
+    """Write a complete synthetic session (video, frame sidecar, RFID log, labels; optionally audio).
+
+    With audio, `playback_every_s` plays a stimulus about that often (logged in
+    audio_playback.csv), and `sound_labels` writes the true calls as reviewed
+    sound events, as if an annotator had labeled the whole session.
+    """
     rng = np.random.default_rng(seed + 100)
     rig = load_rig(rig_path)
     rig["cameras"] = [{"id": "cam0", "backend": "synthetic", "device": "", "fps": fps}]
@@ -413,7 +420,21 @@ def simulate_session(
         acfg.mic_near = {"micA": [1, 3], "micB": [2, 4]}  # the simulated microphone placement
         if not audio_sync:
             acfg.sync_channel = ""
-        audio_truth = write_sim_audio(sess, world, acfg, duration_s, audio_model, seed=seed)
+        model = audio_model
+        if playback_every_s > 0:
+            from dataclasses import replace
+
+            from .audio.sim import SimAudioModel
+
+            model = replace(audio_model or SimAudioModel(), playback_every_s=playback_every_s)
+        audio_truth = write_sim_audio(sess, world, acfg, duration_s, model, seed=seed)
+        if sound_labels:
+            from .audio.events import SoundEvent, save_events, save_sound_coverage
+
+            calls = pd.read_csv(sess.file("ground_truth_calls.csv"))
+            save_events(sess, [SoundEvent(float(c.t), float(c.t + c.dur), "call", str(c.pigeon), annotator="sim")
+                               for c in calls.itertuples()])
+            save_sound_coverage(sess, [(0.0, duration_s)], "sim")
     sess.meta["sim"] = {"seed": seed, "rfid_drift_ppm": truth["drift_ppm"], "cam_drift_ppm": cam_drift_ppm,
                         "n_visits": len(world.visits), "n_sync": len(world.sync_edges), "audio": audio_truth}
     sess.finalize(duration_s, {"frames": idx, "rfid_lines": len(lines)})

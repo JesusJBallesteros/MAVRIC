@@ -3,7 +3,7 @@
 **Multimodal Audio-Video-RFID Interaction and Control.** A behavioural suite: synchronized video, audio and RFID
 identification of individual subjects, with event-driven outputs for task control and interaction.
 
-Version 0.8.9 · MIT licence · Windows 10/11 · Python 3.12
+Version 0.9.0 · MIT licence · Windows 10/11 · Python 3.12
 
 ![MAVRIC: RFID, cameras, microphones and a sync pulse on one clock; outputs on RFID events; review, analysis and compression afterwards](docs/images/overview.svg)
 
@@ -75,6 +75,9 @@ mavric simulate sessions --audio             # write a complete simulated sessio
 mavric review sessions/<that session>        # label it
 mavric analyze sessions/<that session>       # sync check and RFID vs labels
 ```
+
+`mavric simulate sessions --playback 20 --sound-labels` also plays a sound about every 20 s, which perched subjects
+sometimes answer, and writes the true calls as labeled sound events, so the sound analysis has something to show.
 
 ### Set up your rig
 
@@ -239,12 +242,29 @@ The report covers:
 - the sync check (**PASS**/FAIL): the sync LED seen by the camera, and the pulses recorded on the audio input,
   matched against the RFID log;
 - RFID accuracy against your labels (sensitivity, precision, identity, κ);
-- bout timing, time budgets, sound-event counts, output firings.
+- bout timing, time budgets, output firings;
+- **sounds**, once you have labeled sound events:
+  - where each emitter was during each sound, by RFID and by your place labels;
+  - sounds per minute for each subject at each place, counting only the time you reviewed for sounds;
+  - **answers to played sounds:** sounds before and after each one, the first answer and its latency, and who
+    answered. `--window 10` sets how long after a played sound an answer counts.
 
 Tables and plots go to `analysis/` in the session folder. `--curated` leaves out the RFID bouts you marked spurious.
 
 ![Place occupancy per subject: labels vs RFID](docs/images/analysis_timeline_by_subject.png)
 ![Sync diagnostics](docs/images/analysis_sync_diagnostics.png)
+![Answers to played sounds](docs/images/analysis_playback_response.png)
+
+**Annotated video:** `mavric render sessions/<session>` (or *Render annotated video* in review) draws the ROIs, RFID
+and your labels on the video. With audio it adds the sound (the two microphones as stereo) and a scrolling
+spectrogram strip with the sound events. The sound follows each frame's true time, so it stays in step with the
+picture.
+
+<img src="docs/images/render_frame.jpg" width="480" alt="Annotated video with the spectrogram strip">
+
+**Other tools:** `mavric timeline sessions/<session>` writes the audio on the video's clock, Audacity label tracks
+(sounds, played sounds, places per subject) and `timeline.csv`. Audacity, Ethograph and BORIS can then show video,
+sound and labels together.
 
 ## 5. Compress video and DeepLabCut
 
@@ -274,14 +294,15 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 |---|---|
 | `mavric acquire [--sim]` | acquisition window (`--headless --duration 60` records without a window) |
 | `mavric review <session>` | place labels, RFID curation, sound events (`--only video\|audio`) |
-| `mavric analyze <session>` | sync check, RFID vs labels, plots |
-| `mavric render <session>` | annotated video |
+| `mavric analyze <session>` | sync check, RFID vs labels, sounds, plots |
+| `mavric render <session>` | annotated video, with sound and a spectrogram strip |
+| `mavric timeline <session>` | audio and label tracks on the video's clock, for Audacity, Ethograph, BORIS |
 | `mavric compress <session or folder>` | `<name>_compressed.mp4` copies |
 | `mavric audio devices\|test\|sounds\|play` | audio interfaces, bench check, the sound library, play a sound |
 | `mavric sounds detect\|export\|import <session>` | sound-event proposals, Audacity / Raven exchange |
 | `mavric outputs list\|test\|fire` | output devices and rules from `config/outputs.yaml` |
 | `mavric import-boris <session> <file.tsv>` | BORIS labels as ground truth |
-| `mavric simulate [--audio]` | a complete simulated session |
+| `mavric simulate [--audio] [--playback 20] [--sound-labels]` | a complete simulated session |
 | `mavric ports` | serial ports and FLIR / Basler cameras |
 | `mavric link-test`, `mavric camtest` | RFID lines, camera check |
 | `mavric selftest`, `mavric --version` | tests, version |
@@ -326,7 +347,7 @@ sessions/20261029_101500_demo/
   actions.csv               every output decision
   clips/                    RFID-triggered clips
   manual_labels.csv, label_coverage.csv, sound_events.csv, sound_coverage.csv   from review
-  analysis/                 from analyze
+  analysis/                 from analyze, render and timeline
   cam0_compressed.mp4       from compress
 ```
 

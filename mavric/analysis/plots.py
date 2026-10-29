@@ -248,7 +248,133 @@ def sync_diagnostics(P, out: Path) -> Path:
         return _save(fig, out / "sync_diagnostics.png")
 
 
-def make_all(P, cmp, time_budget_df, transitions_df, labels, out: Path) -> list[Path]:
+def sound_ethogram(linked, bouts, labels, rois, subjects, coverage, out: Path, t_end: float) -> Path:
+    """Sound events next to place occupancy: per subject, its sounds at the place RFID had it (black ticks).
+
+    A top panel holds the played sounds (per speaker) and sounds of unknown
+    emitters; thin vertical lines carry the played sounds through every panel.
+    """
+    from .sounds import NOT_DETECTED
+
+    k, unit = _time_unit(t_end)
+    rows = rois + [NOT_DETECTED]
+    played = linked[linked["emitter_kind"] == "system"]
+    speakers = sorted(played["emitter"].unique().tolist())
+    top = [s.split(":", 1)[1] for s in speakers] + (["unknown"] if (linked["emitter_kind"] == "unknown").any() else [])
+    w_min = t_end / 1500  # a sound is drawn at least this wide, so short calls stay visible
+    if coverage and sum(b - a for a, b in coverage) >= 0.98 * t_end:
+        coverage = []
+    heights = ([max(1, len(top)) * 0.3 + 0.5] if top else []) + [0.3 * len(rows) + 0.45] * len(subjects)
+    with plt.rc_context(STYLE):
+        fig, axes = plt.subplots(len(heights), 1, figsize=(10, sum(heights) + 0.9), sharex=True, squeeze=False,
+                                 gridspec_kw={"height_ratios": heights})
+        axes = list(axes[:, 0])
+        if top:
+            ax = axes.pop(0)
+            ax.set_ylim(-0.6, len(top) - 0.4)
+            ax.set_yticks(range(len(top)), top)
+            ax.invert_yaxis()
+            for y, em in enumerate(speakers):
+                g = played[played["emitter"] == em]
+                ax.broken_barh([(a / k, max(b - a, w_min) / k) for a, b in zip(g["start_s"], g["stop_s"])],
+                               (y - 0.3, 0.6), color=INK2, lw=0)
+            g = linked[linked["emitter_kind"] == "unknown"]
+            if len(g):
+                ax.broken_barh([(a / k, max(b - a, w_min) / k) for a, b in zip(g["start_s"], g["stop_s"])],
+                               (len(top) - 1 - 0.3, 0.6), color=INK, lw=0)
+            ax.set_title("Played sounds and unknown emitters", fontsize=9, pad=3)
+        for ax, p in zip(axes, subjects):
+            ax.set_ylim(-0.6, len(rows) - 0.4)
+            ax.set_yticks(range(len(rows)), rows)
+            ax.invert_yaxis()
+            for a, b in coverage:
+                ax.axvspan(a / k, b / k, color="#f0efec", lw=0, zorder=0)
+            for t in played["start_s"]:
+                ax.axvline(t / k, color=AXIS, lw=0.6, zorder=1)
+            if labels is not None and len(labels):
+                g = labels[labels["pigeon"] == p]
+                for roi, a, b in zip(g["roi"], g["start_s"], g["stop_s"]):
+                    if roi in rois:
+                        y = rois.index(roi)
+                        ax.broken_barh([(a / k, (b - a) / k)], (y - 0.32, 0.64), color=S_MANUAL, alpha=0.35, lw=0)
+            g = bouts[bouts["pigeon"] == p] if len(bouts) else bouts
+            for roi, a, b in zip(g["roi"], g["start_s"], g["stop_s"]):
+                if roi in rois:
+                    y = rois.index(roi)
+                    ax.broken_barh([(a / k, (b - a) / k)], (y - 0.1, 0.2), color=S_RFID, lw=0)
+            g = linked[linked["emitter"] == p]
+            for place, a, b in zip(g["place_rfid"], g["start_s"], g["stop_s"]):
+                y = rows.index(place) if place in rois else len(rows) - 1
+                ax.broken_barh([(a / k, max(b - a, w_min) / k)], (y - 0.38, 0.76), color=INK, lw=0, zorder=3)
+            ax.set_title(f"{p}: {len(g)} sound(s)", fontsize=9, pad=3)
+        axes[-1].set_xlabel(f"Time ({unit})")
+        axes[-1].set_xlim(0, t_end / k)
+        handles = [plt.Rectangle((0, 0), 1, 1, color=INK, lw=0), plt.Rectangle((0, 0), 1, 1, color=S_RFID, lw=0)]
+        names = ["Sound event", "RFID bout"]
+        if labels is not None and len(labels):
+            handles.append(plt.Rectangle((0, 0), 1, 1, color=S_MANUAL, alpha=0.35, lw=0))
+            names.append("Manual place label")
+        if len(played):
+            handles.append(plt.Line2D([0], [0], color=AXIS, lw=0.8))
+            names.append("Played sound")
+        if coverage:
+            handles.append(plt.Rectangle((0, 0), 1, 1, color="#f0efec", lw=0))
+            names.append("Reviewed for sounds")
+        fig.legend(handles, names, loc="upper right", ncol=len(names), bbox_to_anchor=(1.0, 1.0))
+        fig.suptitle("Sound events and place occupancy", x=0.01, ha="left", fontsize=11, fontweight="semibold")
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
+        return _save(fig, out / "sound_ethogram.png")
+
+
+def playback_response(linked, responses, by_subject, window_s: float, out: Path, bin_s: float = 0.5) -> Path | None:
+    """Answers to played sounds: sound onsets around each played sound, and each subject's first latency."""
+    ok = responses[responses["reviewed_frac"] >= 0.99]
+    if not len(ok):
+        return None
+    ans = linked[linked["emitter_kind"] != "system"]["start_s"].to_numpy(float)
+    rel = np.concatenate([ans[(ans >= t - window_s) & (ans <= t + window_s)] - t for t in ok["t"]]) \
+        if len(ans) else np.array([])
+    edges = np.arange(-window_s, window_s + bin_s / 2, bin_s)
+    counts, _ = np.histogram(rel, edges)
+    rate = counts / len(ok) / bin_s
+    bs = by_subject[by_subject["reviewed_frac"] >= 0.99]
+    subjects = list(dict.fromkeys(bs["subject"]))
+    with plt.rc_context(STYLE):
+        fig, axes = plt.subplots(1, 2, figsize=(10, max(2.8, 0.36 * len(subjects) + 1.4)),
+                                 gridspec_kw={"width_ratios": [1.3, 1]})
+        ax = axes[0]
+        ax.bar(edges[:-1], rate, width=bin_s, align="edge", color=S_MANUAL, edgecolor=SURFACE, linewidth=0.8)
+        dur = float((ok["t_stop"] - ok["t"]).median())
+        ax.axvspan(0, dur, color="#f0efec", lw=0, zorder=0)
+        ax.axvline(0, color=INK2, lw=0.8)
+        ax.set_xlim(-window_s, window_s)
+        ax.set_xlabel("Seconds from the played sound's onset")
+        ax.set_ylabel("Sound onsets per second")
+        ax.grid(axis="y")
+        ax.set_axisbelow(True)
+        ax.set_title(f"Sounds around {len(ok)} played sound(s) (shaded: median stimulus)", fontsize=9)
+        ax = axes[1]
+        for y, s in enumerate(subjects):
+            v = bs.loc[bs["subject"] == s, "first_latency_s"].to_numpy(float)
+            got = v[np.isfinite(v)]
+            ax.hlines(y, 0, window_s, color=GRID, lw=0.6)
+            ax.scatter(got, np.full(len(got), y), s=22, color=S_MANUAL, edgecolor=SURFACE, linewidth=1, zorder=3)
+            if len(got):
+                ax.vlines(np.median(got), y - 0.3, y + 0.3, color=INK, lw=1.5, zorder=4)
+            ax.text(window_s * 1.02, y, f"{len(got)}/{len(v)}", va="center", fontsize=8, color=INK2)
+        ax.set_yticks(range(len(subjects)), subjects)
+        ax.set_ylim(len(subjects) - 0.4, -0.6)
+        ax.set_xlim(0, window_s * 1.12)
+        ax.set_xlabel("First answer after onset (s)")
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(axis="y", length=0)
+        ax.set_title("First answer per subject (bar: median; right: answered/played)", fontsize=9)
+        fig.suptitle("Answers to played sounds", x=0.01, ha="left", fontsize=11, fontweight="semibold")
+        fig.tight_layout(rect=(0, 0, 1, 0.93))
+        return _save(fig, out / "playback_response.png")
+
+
+def make_all(P, cmp, time_budget_df, transitions_df, labels, out: Path, sounds: dict | None = None) -> list[Path]:
     out = Path(out)
     rois = P.rois
     pigeons = [p for p in P.session.tags.pigeons if
@@ -272,6 +398,25 @@ def make_all(P, cmp, time_budget_df, transitions_df, labels, out: Path) -> list[
                              note="Rows: manual label. Columns: RFID. Shade = share of the row; "
                                   "diagonal = agreement; EMPTY = nobody."))
         p = latency_hist(cmp.events, cmp.summary["tol_s"], out)
+        if p:
+            paths.append(p)
+    if sounds:
+        from .sounds import ALL, ANY_PLACE, NOT_DETECTED
+
+        linked = sounds["linked"]
+        subj = [p for p in P.session.tags.pigeons if (linked["emitter"] == p).any() or
+                (len(P.bouts) and (P.bouts["pigeon"] == p).any())]
+        t_end = t_end or float(max(linked["stop_s"].max(), P.bouts["stop_s"].max() if len(P.bouts) else 0))
+        paths.append(sound_ethogram(linked, P.bouts, labels, rois, subj, sounds["coverage"], out, t_end))
+        r = sounds["rates"]
+        if len(r) and (r["n"] > 0).any():
+            r = r[r["type"] == ALL]
+            tab = r.pivot(index="subject", columns="place", values="per_min").reindex(
+                index=[s for s in subj if s in set(r["subject"])], columns=rois + [NOT_DETECTED, ANY_PLACE])
+            paths.append(heatmap(tab, "Sound events per minute at each place (RFID; reviewed time only)",
+                                 lambda v: f"{v:.2f}", out / "call_rates.png", "Place", "Subject",
+                                 note="Blank: the subject was never there while the sounds were reviewed."))
+        p = playback_response(linked, sounds["responses"], sounds["by_subject"], sounds["window_s"], out)
         if p:
             paths.append(p)
     return paths

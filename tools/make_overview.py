@@ -81,7 +81,7 @@ def spectrogram_jpeg(sess: Path, t0: float, t1: float, fmax: float, px_w: int, p
     import soundfile as sf
     from matplotlib.colors import LinearSegmentedColormap
 
-    from mavric.gui.audio_widgets import SPEC_STOPS
+    from mavric.audio.source import SPEC_STOPS
 
     x, sr = sf.read(sess / "audio_000.flac", always_2d=True)
     sig = x[int(t0 * sr):int(t1 * sr), 0]

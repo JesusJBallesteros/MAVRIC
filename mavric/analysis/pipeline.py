@@ -96,8 +96,12 @@ def run_analysis(
     tol_s: float = 1.0,
     plots: bool = True,
     use_curated: bool = False,
+    response_window_s: float = 10.0,
 ) -> dict:
-    """Run everything and write `analysis/`. Returns the summary dict."""
+    """Run everything and write `analysis/`. Returns the summary dict.
+
+    `response_window_s`: how long after a played sound an answer counts.
+    """
     if not isinstance(sess, Session):
         sess = Session.open(sess)
     P = prepare(sess, gap_s=gap_s)
@@ -149,20 +153,14 @@ def run_analysis(
         if len(wd):
             summary.setdefault("warnings", []).append(f"I/O watchdog fired {len(wd)} time(s): outputs dropped")
 
-    from ..audio.events import load_events, load_sound_coverage
+    labels = load_labels(sess)
+    sounds = None
+    if sess.audio:
+        from .sounds import analyze_sounds
 
-    sound = load_events(sess) if sess.audio else []
-    if sound:
-        from ..audio.events import events_to_df
-
-        sdf = events_to_df(sound)
-        sdf["duration_s"] = sdf["stop_s"] - sdf["start_s"]
-        sdf.groupby(["type", "emitter"]).agg(n=("start_s", "size"), total_s=("duration_s", "sum")).to_csv(
-            out / "sound_events_summary.csv")
-        summary["sound_events"] = {
-            "n": int(len(sdf)), "reviewed_s": float(sum(b - a for a, b in load_sound_coverage(sess))),
-            "by_type": sdf["type"].value_counts().to_dict(), "by_emitter": sdf["emitter"].value_counts().to_dict(),
-        }
+        sounds = analyze_sounds(sess, P.audio, rfid_used, labels, rois, out, window_s=response_window_s)
+        if sounds:
+            summary["sound_events"] = sounds["summary"]
 
     if sess.clips:
         from .clips import clip_table
@@ -182,7 +180,6 @@ def run_analysis(
     tr = transitions(rfid_used, rois)
     tr.to_csv(out / "transitions_rfid.csv")
 
-    labels = load_labels(sess)
     coverage = load_coverage(sess)
     cmp = None
     if labels is not None and len(labels):
@@ -206,5 +203,5 @@ def run_analysis(
     if plots:
         from . import plots as pl
 
-        pl.make_all(P, cmp, tb, tr, labels, out)
+        pl.make_all(P, cmp, tb, tr, labels, out, sounds)
     return summary

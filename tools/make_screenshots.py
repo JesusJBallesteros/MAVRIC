@@ -224,6 +224,27 @@ def main() -> None:
         if src.exists():
             shutil.copy(src, OUT / f"analysis_{name}.png")
             print(f"wrote docs/images/analysis_{name}.png")
+
+    # ------------------------------------------------------------------ sound analysis and the annotated video
+    import cv2
+
+    from mavric.analysis.pipeline import prepare
+    from mavric.analysis.render import render_annotated
+
+    snd = simulate_session(tmp / "sessions", duration_s=240, seed=7, audio=True, playback_every_s=20,
+                           sound_labels=True, label_noise_s=0.15, name="sounds", rig_path=rig_file)
+    run_analysis(snd, plots=True)
+    for name in ("sound_ethogram", "playback_response"):
+        shutil.copy(snd.analysis_dir / f"{name}.png", OUT / f"analysis_{name}.png")
+        print(f"wrote docs/images/analysis_{name}.png")
+    clip = render_annotated(prepare(snd), None, out_path=snd.analysis_dir / "clip.mp4", t_range=(50.0, 58.0))
+    cap = cv2.VideoCapture(str(clip))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 138)  # just after the sound played at 54.3 s
+    ok, img = cap.read()
+    cap.release()
+    if ok:
+        cv2.imwrite(str(OUT / "render_frame.jpg"), img, [cv2.IMWRITE_JPEG_QUALITY, 88])  # noisy picture: JPEG
+        print("wrote docs/images/render_frame.jpg")
     shutil.rmtree(tmp, ignore_errors=True)
 
 

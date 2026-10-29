@@ -143,14 +143,17 @@ def emitters(pigeons: list[str], speakers: list[str]) -> list[str]:
 # --------------------------------------------------------------------------- playback log -> events
 
 
-def playback_events(sess: Session, tmap) -> list[SoundEvent]:
-    """Sounds the rig played (audio_playback.csv), as events with emitter system:<speaker>."""
+PLAYBACK_LOG_COLUMNS = ["t", "t_stop", "speaker", "sound", "gain_db", "loop", "stopped", "source"]
+
+
+def playback_log(sess: Session, tmap) -> pd.DataFrame:
+    """audio_playback.csv on the session timeline: t, t_stop, speaker, sound, gain_db, loop, stopped, source."""
     p = sess.file(PLAYBACK_FILE)
     if not p.exists():
-        return []
-    df = pd.read_csv(p, dtype={"speaker": str, "sound": str}, keep_default_na=False)
+        return pd.DataFrame(columns=PLAYBACK_LOG_COLUMNS)
+    df = pd.read_csv(p, dtype={"speaker": str, "sound": str, "source": str}, keep_default_na=False)
     sr = float(sess.audio["sample_rate"]) if sess.audio else 48000.0
-    out = []
+    rows = []
     for r in df.to_dict(orient="records"):
         if "sample" in r and tmap is not None and str(r["sample"]) != "":
             s0 = float(r["sample"])
@@ -161,9 +164,15 @@ def playback_events(sess: Session, tmap) -> list[SoundEvent]:
             t1 = t0 + float(r.get("dur_s") or 0)
         if not np.isfinite(t0):
             continue
-        out.append(SoundEvent(t0, max(t1, t0 + 1 / sr), type="playback", emitter=f"{SYSTEM}:{r['speaker']}",
-                              source="playback", note=str(r.get("sound", ""))))
-    return out
+        rows.append([t0, max(t1, t0 + 1 / sr), str(r["speaker"]), str(r.get("sound", "")), _num(r.get("gain_db")),
+                     int(_num(r.get("loop")) == 1), int(_num(r.get("stopped")) == 1), str(r.get("source", ""))])
+    return pd.DataFrame(rows, columns=PLAYBACK_LOG_COLUMNS).sort_values("t").reset_index(drop=True)
+
+
+def playback_events(sess: Session, tmap) -> list[SoundEvent]:
+    """Sounds the rig played (audio_playback.csv), as events with emitter system:<speaker>."""
+    return [SoundEvent(r.t, r.t_stop, type="playback", emitter=f"{SYSTEM}:{r.speaker}", source="playback",
+                       note=r.sound) for r in playback_log(sess, tmap).itertuples()]
 
 
 def merge_playback(events: list[SoundEvent], played: list[SoundEvent]) -> tuple[list[SoundEvent], int]:

@@ -18,8 +18,9 @@ with two microphones and four speakers.
 |---|---|---|
 | Acquire | Live cameras, place ROIs tied to antennas, live RFID and audio, synchronized recording | `mavric acquire` |
 | Review | Blind ground-truth labeling of place occupancy; RFID curation; disagreement navigation; sound events (also for sessions without video) | `mavric review <session>` |
-| Analyze | Clock sync + LED and audio validation, RFID bouts, accuracy vs labels, time budgets, plots | `mavric analyze <session>` |
-| Render | Annotated video (ROIs, RFID ID, label, disagreements) | `mavric render <session>` |
+| Analyze | Clock sync + LED and audio validation, RFID bouts, accuracy vs labels, time budgets, sounds per subject and place, answers to played sounds, plots | `mavric analyze <session>` |
+| Render | Annotated video (ROIs, RFID ID, label, disagreements; the sound and a spectrogram strip) | `mavric render <session>` |
+| Timeline | Audio on the video's clock and Audacity label tracks, for Audacity, Ethograph and BORIS | `mavric timeline <session>` |
 | Compress | H.264 copies of the raw video, every frame kept, for sharing and DeepLabCut | `mavric compress <session>` |
 | BORIS stopgap | Use BORIS labels as ground truth | `mavric import-boris <session> <export.tsv>` |
 | Triggered clips | Record video only while RFID detects a tag (any camera, incl. ones not used for ID) | acquire → **Outputs…** → Camera clips |
@@ -615,7 +616,12 @@ Writes `analysis/` in the session folder:
 | `rfid_samples.csv`, `rfid_bouts.csv` | Tag reads on the session timeline; bouts per subject × place |
 | `comparison_bins.csv`, `accuracy_per_roi.csv`, `accuracy_per_pigeon.csv`, `confusion_seconds.csv`, `event_matching.csv` | RFID vs labels |
 | `time_budget_*.csv`, `transitions_rfid.csv` | Time per subject per place, place-to-place moves |
-| `*.png` | Occupancy timeline per subject, accuracy per place, confusion, bout timing error, time budget, transitions, sync diagnostics |
+| `sound_events_linked.csv` | Every sound event and every played sound, with `emitter_kind` (subject, system, unknown), the emitter's place by RFID (`place_rfid`) and by your labels (`place_label`), and who RFID detected where at its onset (`present_rfid`) |
+| `call_rates.csv` | `subject`, `place`, `type`, `n`, `time_s`, `per_min`: sounds per minute of each subject at each place |
+| `playback_responses.csv` | One row per played sound: `window_s`, `reviewed_frac`, `n_before`, `n_after`, rates before and after, `first_latency_s`, `first_emitter`, `responders`, `present_rfid` |
+| `playback_by_subject.csv` | Played sound × subject: where the subject was (`place_rfid`), its answers (`n_after`) and first latency |
+| `sound_events_summary.csv` | Count and total duration per type and emitter |
+| `*.png` | Occupancy timeline per subject, accuracy per place, confusion, bout timing error, time budget, transitions, sync diagnostics; with sounds, `sound_ethogram`, `call_rates`, `playback_response` |
 | `summary.json` | Everything above, in one file |
 
 **Metrics.** Computed per place, in time bins (default 0.5 s) within the reviewed coverage:
@@ -629,6 +635,53 @@ Writes `analysis/` in the session folder:
 | Crosstalk vs phantom | A false read is *crosstalk* when that subject was really at another place, otherwise *phantom* |
 
 **Bout level** (±1 s tolerance): recall, precision, arrival/departure latency, and fragmentation of a visit into several RFID bouts.
+
+**Sounds.** The sound tables use the labeled sound events (`sound_events.csv`) plus every played sound in
+`audio_playback.csv`, so playback is analysed even before anyone reviews it.
+- **A sound's place** is where its emitter spent most of the sound: by RFID (bouts marked spurious in review don't
+  count) and by the manual place labels. Empty means the subject was at no place.
+- **Rates** count only the time reviewed for sounds (`sound_coverage.csv`): unreviewed time has unknown sounds, not
+  zero. Without that file, the whole recording is assumed reviewed, and the report says so.
+  - **Time at a place:** the reviewed time RFID had the subject there.
+  - `(not detected)`: the reviewed time RFID had the subject at no place.
+  - `(any place)`: all of the subject's sounds over all reviewed time.
+- **Answers to played sounds:** sounds by subjects or unknown emitters that start after the played sound's onset.
+  - **Window:** `--window` seconds (default 10), cut short by the next played sound.
+  - **Comparison:** the same length before the onset, starting no earlier than the previous played sound's end.
+  - **Latency** is measured from the onset. A spontaneous sound that happens to follow also counts, so compare
+    the rates before and after.
+  - The summary uses only played sounds whose window was fully reviewed (`reviewed_frac` = 1).
+
+![Sound events and place occupancy](images/analysis_sound_ethogram.png)
+
+### 4. Render and timeline
+
+**Annotated video:** `mavric render <session> [--start s] [--stop s]`, or *Render annotated video* in review, writes
+`analysis/annotated_<cam>.mp4`:
+- the ROIs, coloured by who RFID detects there, with RFID and label text, and disagreements in red;
+- with audio:
+  - **The sound:** `--audio auto` (two mics as stereo), `stereo`, `mix`, `none` or one microphone's name. It is
+    normalized so the loudest moment of the clip peaks at −3 dBFS (at most +30 dB).
+  - **A spectrogram strip** under the picture: one band per microphone, `--span 6` seconds around the frame with the
+    playhead in the middle, and the sound events and played sounds above it in the subject's colour. The range goes
+    up to `audio.display_fmax_hz`, as in review (`--fmax` to change it); `--no-spectrogram` leaves it out.
+
+The video plays at a constant frame rate, but frames carry their true times (camera clock drift, dropped frames). The
+sound is resampled onto the video's own timeline, so it stays within a sample of the picture for any length of
+video.
+
+**Timeline export:** `mavric timeline <session>` writes `analysis/timeline/`, where every file counts seconds from
+the video's first frame (frame k at k / fps, as in `<cam>_compressed.mp4`):
+
+| File | Content |
+|---|---|
+| `audio_<cam>.wav` | The microphones on the video's clock, 24-bit (RF64 past 4 GB); `--no-audio` skips it |
+| `sound_events.txt`, `played_sounds.txt` | Audacity label tracks: "S03 call @PlaceB", "call_A on spk2" |
+| `<subject>_places_rfid.txt`, `<subject>_places_labels.txt` | Audacity label tracks: each subject's places |
+| `timeline.csv` | Every track in one table, in session and clock seconds |
+| `README.txt` | How to open it in Audacity, Ethograph or BORIS |
+
+Sessions without video use the audio's own clock (seconds from the first sample).
 
 ## How synchronization works
 
@@ -675,8 +728,9 @@ sessions/<YYYYmmdd_HHMMSS>_<name>/
   rfid_curation.csv   antenna, tag, t, start_s, stop_s, verdict
   sound_events.csv    annotator, start_s, stop_s, type, emitter, channel, f_low_hz, f_high_hz, confidence, source, note
   sound_coverage.csv  annotator, start_s, stop_s
-  analysis/           analyze, render and sound tools (sync_report.json, summary.json, tables, plots,
-                      audio_time_knots.csv, sound_proposals.csv, annotated_<cam>.mp4, audio_envelope.npz cache)
+  analysis/           analyze, render, timeline and sound tools (sync_report.json, summary.json, tables, plots,
+                      audio_time_knots.csv, sound_events_linked.csv, call_rates.csv, playback_*.csv,
+                      sound_proposals.csv, annotated_<cam>.mp4, timeline/, audio_envelope.npz cache)
 ```
 
 All times are seconds since session start. Everything is plain CSV/JSON, so MATLAB reads it directly
@@ -691,7 +745,8 @@ config/          rig.yaml, tags.csv, rois.json, video.yaml, outputs.yaml, sound_
 mavric/rfid/      protocol (parse, EM4100 checksum, micros unwrap), serial thread, presence tracker
 mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthetic; IDS stub), recorder (raw
                  lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest
-mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, plots, render, clips, pipeline
+mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
+                 sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling)
 mavric/acquire.py acquisition controller (no GUI), event bus for presence changes
 mavric/triggers.py RFID-triggered clip rules (ring-buffer pre-roll, post-roll, max length)
@@ -707,14 +762,16 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 
 ## Not built yet
 
-- **Audio analysis** (planned for 0.9.0): sound events linked to RFID bouts, giving call rates per subject and
-  place and responses to played sounds (latency to the first call, and who answered); sound ethograms next to place
-  occupancy; the audio track and a spectrogram strip in the annotated video.
+- **Camera calibration and 3D:** calibrate the cameras with a ChArUco board, give each place a 3D position and
+  draw the ROIs in every camera; later, frame-triggered capture for 3D tracking and pose.
+- **Microphone and speaker positions:** placed like the ROIs, with distances to each place, for graded emitter
+  suggestions and the stimulus level at each place.
 - **Automatic call classification,** trained on the labeled sound events.
 - **Playback schedules:** playlists and timed stimulus sequences (sounds play by hand or from RFID rules today).
 - **Speaker calibration:** level per speaker at the subjects' position.
 - **DeepLabCut SuperAnimal models:** detect animals in each ROI with no training, to pre-fill label proposals.
 - **RFID → video identity:** PyMouseTracks-style assignment, a DLC `stitch_tracklets(weight_func=...)` hook, and
   identity-head training on single-occupancy frames that RFID has confirmed.
-- **Ethograph export:** xarray TrialTree + `labels.tsv`.
+- **Native Ethograph dataset** (TrialTree `.nc` + `labels.tsv`). `mavric timeline` already gives Ethograph the
+  video, the aligned audio and Audacity label tracks.
 - **Live mode:** the analysis pipeline on a rolling buffer.

@@ -8,11 +8,9 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
+from ..audio.source import SPEC_STOPS  # one-hue ramp (blue), surface -> dark: quiet recedes into the background
 from .common import RED
 
-# one-hue sequential ramp (blue), surface -> dark: quiet recedes into the background
-SPEC_STOPS = [(0.0, "#fcfcfb"), (0.15, "#cde2fb"), (0.4, "#86b6ef"), (0.6, "#3987e5"), (0.8, "#1c5cab"),
-              (1.0, "#0d366b")]
 METER_FILL = "#2a78d6"
 FLOOR_DB = -60.0
 

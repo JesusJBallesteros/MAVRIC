@@ -81,7 +81,7 @@ def cmd_analyze(args):
     from .analysis.pipeline import run_analysis
 
     s = run_analysis(args.session, bin_s=args.bin, gap_s=args.gap, tol_s=args.tol, plots=not args.no_plots,
-                     use_curated=args.curated)
+                     use_curated=args.curated, response_window_s=args.window)
     sy = s["sync"]
     print(f"session {s['session']}")
     for seg, f in sy.get("rfid_segments", {}).items():
@@ -126,7 +126,20 @@ def cmd_analyze(args):
     se = s.get("sound_events")
     if se:
         print(f"  sound events: {se['n']} ({', '.join(f'{k} {v}' for k, v in se['by_type'].items())}), "
-              f"reviewed {se['reviewed_s'] / 60:.1f} min")
+              f"reviewed {se['reviewed_s'] / 60:.1f} min" + (" (no sound_coverage.csv: whole recording assumed)"
+                                                              if se.get("coverage_assumed") else ""))
+        if se.get("per_min_by_subject"):
+            print("    per minute: " + ", ".join(f"{k} {v:.2f}" for k, v in se["per_min_by_subject"].items()))
+        pb = se.get("playback")
+        if pb:
+            line = (f"    played sounds: {pb['n_played']}, {pb['n_reviewed']} with the {pb['window_s']:g} s around "
+                    f"reviewed")
+            if pb.get("answered") is not None:
+                lat = pb.get("first_latency_med_s")
+                line += (f"; answered {pb['answered']:.0%}" + (f", first answer median {lat:.2f} s" if lat else "")
+                         + f"; sounds per minute before {pb['rate_before_per_min']:.1f}, "
+                           f"after {pb['rate_after_per_min']:.1f}")
+            print(line)
     print(f"  outputs in {Path(args.session) / 'analysis'}")
 
 
@@ -139,9 +152,22 @@ def cmd_render(args):
     sess = Session.open(args.session)
     P = prepare(sess)
     rng = (args.start, args.stop) if args.stop else None
-    p = render_annotated(P, load_labels(sess), t_range=rng,
+    p = render_annotated(P, load_labels(sess), t_range=rng, audio=args.audio, spectrogram=not args.no_spectrogram,
+                         span_s=args.span, fmax=args.fmax,
                          progress=lambda f: print(f"\r  {f:5.1%}", end="", flush=True))
     print(f"\n{p}")
+
+
+def cmd_timeline(args):
+    from .analysis.labels_io import load_labels
+    from .analysis.pipeline import prepare
+    from .analysis.timeline import export_timeline
+    from .session import Session
+
+    sess = Session.open(args.session)
+    out = export_timeline(prepare(sess), load_labels(sess), audio=not args.no_audio,
+                          progress=lambda f: print(f"\r  audio {f:5.1%}", end="", flush=True))
+    print(f"\n{out}  (README.txt says how to open it)")
 
 
 def cmd_import_boris(args):
@@ -164,7 +190,8 @@ def cmd_simulate(args):
     from .sim import simulate_session
 
     s = simulate_session(args.out, args.duration, seed=args.seed, name=args.name, label_noise_s=args.noise,
-                         label_coverage_s=args.label_span, audio=args.audio)
+                         label_coverage_s=args.label_span, audio=args.audio or bool(args.playback) or args.sound_labels,
+                         playback_every_s=args.playback or 0.0, sound_labels=args.sound_labels)
     print(s.path)
 
 
@@ -607,6 +634,7 @@ def main(argv=None):
     z.add_argument("--gap", type=float, default=0.5, help="max gap inside an RFID bout (s)")
     z.add_argument("--tol", type=float, default=1.0, help="event matching tolerance (s)")
     z.add_argument("--curated", action="store_true", help="drop RFID bouts marked spurious in review")
+    z.add_argument("--window", type=float, default=10.0, help="how long after a played sound an answer counts (s)")
     z.add_argument("--no-plots", action="store_true")
     z.set_defaults(fn=cmd_analyze)
 
@@ -614,7 +642,18 @@ def main(argv=None):
     v.add_argument("session")
     v.add_argument("--start", type=float, default=0.0, help="session time to start at (s)")
     v.add_argument("--stop", type=float, default=None, help="session time to stop at (s; default: end)")
+    v.add_argument("--audio", default="auto",
+                   help="sound track: auto (two mics as stereo), stereo, mix, none, or one microphone's name")
+    v.add_argument("--no-spectrogram", action="store_true", help="no spectrogram strip under the picture")
+    v.add_argument("--span", type=float, default=6.0, help="seconds shown in the spectrogram strip")
+    v.add_argument("--fmax", type=float, default=None, help="top of the spectrogram strip, Hz "
+                   "(default: audio.display_fmax_hz in rig.yaml, as in review)")
     v.set_defaults(fn=cmd_render)
+
+    tl = sub.add_parser("timeline", help="video-aligned audio and label tracks for Audacity, Ethograph, BORIS")
+    tl.add_argument("session")
+    tl.add_argument("--no-audio", action="store_true", help="label tracks and timeline.csv only, no WAV")
+    tl.set_defaults(fn=cmd_timeline)
 
     b = sub.add_parser("import-boris", help="import BORIS aggregated events as manual labels")
     b.add_argument("session")
@@ -633,6 +672,9 @@ def main(argv=None):
     s.add_argument("--noise", type=float, default=0.15, help="label timing noise (s)")
     s.add_argument("--label-span", type=float, default=None, help="label only the first N s")
     s.add_argument("--audio", action="store_true", help="also simulate the audio inputs (mics + sync pulse)")
+    s.add_argument("--playback", type=float, default=None, metavar="SECONDS",
+                   help="with audio: play a stimulus about every SECONDS; perched subjects answer some")
+    s.add_argument("--sound-labels", action="store_true", help="with audio: write the true calls as sound events")
     s.set_defaults(fn=cmd_simulate)
 
     sub.add_parser("ports", help="list serial ports and Basler / FLIR cameras").set_defaults(fn=cmd_ports)

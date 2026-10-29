@@ -15,6 +15,17 @@ import numpy as np
 from ..session import Session
 
 ENVELOPE_FILE = "audio_envelope.npz"
+# spectrogram colours (low -> high level): review, the annotated video and the README pictures
+SPEC_STOPS = [(0.0, "#fcfcfb"), (0.15, "#cde2fb"), (0.4, "#86b6ef"), (0.6, "#3987e5"), (0.8, "#1c5cab"),
+              (1.0, "#0d366b")]
+
+
+def spectrogram_lut(n: int = 256) -> np.ndarray:
+    """SPEC_STOPS as an (n, 3) uint8 RGB lookup table."""
+    pos = np.array([p for p, _ in SPEC_STOPS])
+    rgb = np.array([[int(c[i:i + 2], 16) for i in (1, 3, 5)] for _, c in SPEC_STOPS], float)
+    x = np.linspace(0, 1, n)
+    return np.stack([np.interp(x, pos, rgb[:, k]) for k in range(3)], axis=1).round().astype(np.uint8)
 
 
 class AudioSource:

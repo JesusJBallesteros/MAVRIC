@@ -44,7 +44,8 @@ BASICS = {
 <p><b>Afterwards</b> (command line):</p>
 <ul>
 <li><code>mavric review &lt;session&gt;</code>: label and curate.</li>
-<li><code>mavric analyze &lt;session&gt;</code>: sync check, RFID vs labels, plots.</li>
+<li><code>mavric analyze &lt;session&gt;</code>: sync check, RFID vs labels, sounds, plots.</li>
+<li><code>mavric render &lt;session&gt;</code>: annotated video, with sound and a spectrogram strip.</li>
 <li><code>mavric compress &lt;session&gt;</code>: shareable and DeepLabCut copies.</li>
 </ul>
 <p>Hover over any control for a short description.</p>""",
@@ -84,7 +85,10 @@ show as context, and Save writes only the sound events.</p>
 <p>Sounds the rig played (soundboard, rules) appear by themselves as <i>playback</i> events from
 <i>system:&lt;speaker&gt;</i>.</p>
 <p><b>Session.</b> <i>Save</i> (Ctrl+S, also every minute), <i>Analyze</i>, and with video <i>Render annotated
-video</i> and <i>Compress videos…</i></p>""",
+video</i> (with audio: the sound and a spectrogram strip) and <i>Compress videos…</i></p>
+<p><b>After labeling sounds,</b> <i>Analyze</i> links each sound to where its emitter was (RFID and your place
+labels), gives sounds per minute per subject and place over the reviewed time, and the answers to played sounds.
+<code>mavric timeline &lt;session&gt;</code> exports audio and label tracks for Audacity, Ethograph or BORIS.</p>""",
 }
 
 

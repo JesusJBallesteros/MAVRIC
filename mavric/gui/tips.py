@@ -73,8 +73,10 @@ REVIEW = {
     "follow": "Keep the playhead in view while playing",
     "Save (Ctrl+S)": "Save labels, reviewed spans, curation and sound events (also every minute). Reviewing audio "
                      "only saves just the sound events.",
-    "Analyze": "Sync check, RFID vs labels, plots (also: mavric analyze <session>)",
-    "Render annotated video": "Video with ROIs, labels and RFID drawn in (analysis/annotated_<cam>.mp4)",
+    "Analyze": "Sync check, RFID vs labels, sounds per subject and place, answers to played sounds, plots "
+               "(also: mavric analyze <session>)",
+    "Render annotated video": "Video with ROIs, labels and RFID drawn in; with audio, also the sound and a "
+                              "spectrogram strip with the sound events (analysis/annotated_<cam>.mp4)",
     "Reset reviewed spans": "Forget which time counts as reviewed (the grey band)",
     "Compress videos…": "Make <name>_compressed.mp4 copies (H.264) of the raw video, e.g. for DeepLabCut",
     # start dialog

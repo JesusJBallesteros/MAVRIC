@@ -75,6 +75,24 @@ class VideoWriter:
         if self.codec is None:
             raise RuntimeError(f"No usable video encoder: {last_err}")
         self.n = 0
+        self.audio = None
+        self.audio_n = 0
+
+    def add_audio(self, rate: int, channels: int, bit_rate: int = 192_000) -> None:
+        """An AAC audio track (mono or stereo); feed it with write_audio() alongside the frames."""
+        st = self.container.add_stream("aac", rate=int(rate), layout="stereo" if channels == 2 else "mono")
+        st.bit_rate = bit_rate
+        self.audio = st
+
+    def write_audio(self, x: np.ndarray) -> None:
+        """Samples (n, channels), float in [-1, 1], continuing the track."""
+        a = np.ascontiguousarray(np.clip(x, -1.0, 1.0).T.astype(np.float32))
+        fr = av.AudioFrame.from_ndarray(a, format="fltp", layout=self.audio.layout.name)
+        fr.sample_rate = self.audio.rate
+        fr.pts = self.audio_n
+        self.audio_n += a.shape[1]
+        for pkt in self.audio.encode(fr):
+            self.container.mux(pkt)
 
     def write(self, img: np.ndarray) -> None:
         img = _even(img)
@@ -88,8 +106,10 @@ class VideoWriter:
         self.n += 1
 
     def close(self) -> None:
-        for pkt in self.stream.encode():
-            self.container.mux(pkt)
+        for st in (self.stream, self.audio):
+            if st is not None:
+                for pkt in st.encode():
+                    self.container.mux(pkt)
         self.container.close()
 
 
