@@ -14,7 +14,7 @@ BASICS = {
   <ul>
   <li>Pick the RFID port and press <i>Connect RFID</i> (the Arduino resets, ~2 s).</li>
   <li>Pick each camera and press <i>Connect camera</i>.</li>
-  <li><i>Connect audio</i> is optional.</li>
+  <li><i>Connect audio</i> (optional): microphones, the sync pulse input and the speakers.</li>
   </ul></li>
 <li><b>ROIs</b> (once per setup, on the first camera).
   <ul>
@@ -50,6 +50,9 @@ BASICS = {
 <p>Hover over any control for a short description.</p>""",
     "review": """
 <h3>Review: the basics</h3>
+<p><b>Start.</b> Enter your initials and choose what to review: <i>Video</i> (place labels, RFID curation) and/or
+<i>Audio</i> (sound events). Without video the playhead runs on its own clock (← → step 10 ms), the RFID lanes
+show as context, and Save writes only the sound events.</p>
 <p><b>Place labels.</b> Watch, and mark who is at the selected place from now on.</p>
 <table cellpadding="3">
 <tr><td><b>↑ ↓</b></td><td>choose the place</td></tr>
@@ -76,9 +79,12 @@ BASICS = {
 <tr><td><b>Y / R</b></td><td>accept / reject an automatic proposal</td></tr>
 <tr><td><b>, .</b></td><td>previous / next event</td></tr>
 <tr><td><b>L</b></td><td>listen</td></tr>
+<tr><td><b>Shift+Del</b></td><td>delete the selected event</td></tr>
 </table>
-<p><b>Session.</b> <i>Save</i> (Ctrl+S, also every minute), <i>Analyze</i>, <i>Render annotated video</i>,
-<i>Compress videos…</i></p>""",
+<p>Sounds the rig played (soundboard, rules) appear by themselves as <i>playback</i> events from
+<i>system:&lt;speaker&gt;</i>.</p>
+<p><b>Session.</b> <i>Save</i> (Ctrl+S, also every minute), <i>Analyze</i>, and with video <i>Render annotated
+video</i> and <i>Compress videos…</i></p>""",
 }
 
 

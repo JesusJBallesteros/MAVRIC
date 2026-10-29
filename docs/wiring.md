@@ -1,4 +1,8 @@
-# MAVRIC wiring and pin-map
+# MAVRIC hardware: wiring and pin maps
+
+The technical hardware guide, written for the reference rig: pigeons on four RFID perches. Other rigs use the same
+pins, cables and checks. Software setup and the device checks are in the [quick-use guide](quickstart.md#4-setting-up-the-devices);
+drivers and firmware flashing in [installation.md](installation.md).
 
 ![MAVRIC wiring overview](wiring_diagram.svg)
 
@@ -8,8 +12,8 @@
 two Point Grey Chameleon3 cameras (cam0 with the ROIs, cam1 for triggered clips), and the audio (MOTU M4, two Rode NT5,
 four speakers; §7).
 
-**Required vs optional:** everything marked **required** is needed for the first milestone. **Optional**
-connections only add redundancy, or prepare later upgrades.
+**Required vs optional:** everything marked **required** is needed for a working rig. **Optional** connections only
+add redundancy, or prepare later upgrades.
 
 > **Safety first.** Wire with everything unplugged. Join all grounds before applying any signal, and check polarity
 > before powering. The ID-20LA's absolute maximum is 5.5 V on its supply pin.
@@ -153,7 +157,7 @@ This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 | USB-B | serial to PC, 500000 baud | PC | opening the port resets the board (that's normal) |
 | GND | ground | common GND | readers, reader supply, sync LED, audio divider; optional camera OPTO_GND and Intan I/O GND |
 | 5V | board 5 V | readers on the bench only | not in the cage (use the separate supply) |
-| D2, D3, D4, D5 | Tag-in-Range inputs, readers 1–4 | ID-20LA pin 6 | the readers drive them; no pull-up needed. Optional 47 kΩ from each to GND: a broken TIR wire then reads "no tag" instead of a phantom bird |
+| D2, D3, D4, D5 | Tag-in-Range inputs, readers 1–4 | ID-20LA pin 6 | the readers drive them; no pull-up needed. Optional 47 kΩ from each to GND: a broken TIR wire then reads "no tag" instead of a phantom subject |
 | D19 (RX1), D17 (RX2), D15 (RX3) | reader 1–3 data in (9600) | ID-20LA pin 9 | hardware UARTs |
 | D10 | reader 4 data in (SoftwareSerial RX) | ID-20LA pin 9 | pin supports pin-change interrupts |
 | **D52** | **sync pulse out**: 80 ms HIGH at random 2–6 s intervals | the sync LED only: 330 Ω → red LED anode (§4.1) | each pulse is logged as `SYNC`. D52 sits at the GND end of the double header, beside the two GND pins. It is also the SPI clock (SCK), which is unused here |
@@ -363,7 +367,7 @@ switch all pins low.
 
 | From | To | Purpose |
 |---|---|---|
-| I/O Arduino pin (e.g. **D30**) | Intan **DIGITAL IN 1** BNC centre | event TTL (*hold* rule = high while a bird is on the perch → **episodic triggered recording**; *pulse* rule = event marker) |
+| I/O Arduino pin (e.g. **D30**) | Intan **DIGITAL IN 1** BNC centre | event TTL (*hold* rule = high while a subject is at the place → **episodic triggered recording**; *pulse* rule = event marker) |
 | I/O Arduino **GND** | BNC shield **and** Intan **I/O GND** binding post (rear) | common reference |
 | RFID MEGA **D48** (the spare sync output, same pulse as the LED) | Intan **DIGITAL IN 2** BNC centre (+ MEGA GND → shield / I/O GND) | the same random pulse train as in the RFID log and the video, so ephys ↔ RFID ↔ video align offline |
 
@@ -448,7 +452,7 @@ MEGA GND ─────────────┴──────── TRS 
    - The sync check reports ~80 ms pulses every 2–6 s.
    - There are no input overflows.
 3. **Speakers:** `mavric audio test --tones`. Each speaker's tone is heard on its nearer microphone, with a delay of a
-   few tens of ms. Keep the birds out of the room, or keep `--tone-db` low (default −30 dBFS).
+   few tens of ms. Keep the animals out of the room, or keep `--tone-db` low (default −30 dBFS).
    - **Round trip:** the test prints the driver's round trip. The rest of each delay is the air, about 2.9 ms per
      metre from speaker to microphone.
    - **One speaker by ear:** `mavric audio play test_tone --speaker spk1 --gain-db -10`.
@@ -492,6 +496,6 @@ MEGA GND ─────────────┴──────── TRS 
 - [Intan Recording Controller user guide](https://intantech.com/files/Intan_Recording_Controller_user_guide.pdf)
   - digital inputs (DIN) and outputs, TTL levels, RHX Remote TCP Control.
 - [Trinamic TMCM-1141 (Analog Devices)](https://www.analog.com/en/products/tmcm-1141.html) (product page → hardware and TMCL firmware manuals)
-  - for the planned stepper output (docs/outputs_plan.md §4).
+  - for a possible stepper-motor output (not built yet).
 - MultiRFID `Arduino Software/README.md` (reader-to-MEGA wiring), and the MAVRIC firmware
   `firmware/MultiRFID_Reader_ID20LA_sync`.

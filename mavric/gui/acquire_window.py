@@ -1,4 +1,5 @@
-"""Acquisition GUI: live camera, perch ROIs tied to antennas, live RFID and audio, synchronized recording."""
+"""Acquisition GUI: live cameras, place ROIs tied to antennas, live RFID and audio, soundboard, synchronized
+recording."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..acquire import AcquisitionController, simulation_controller, stall_text
-from ..config import Roi, resolve_path
+from ..config import Roi, project_root, resolve_path
 from ..core import now
 from ..rfid.serial_reader import Presence, list_ports
 from .camera_grid import CameraGrid
@@ -208,7 +209,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         v.addWidget(g)
 
         # event-driven outputs
-        g = QtWidgets.QGroupBox("Outputs and camera clips (TTL, Intan, MATLAB, messages, video clips)")
+        g = QtWidgets.QGroupBox("Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)")
         f = QtWidgets.QGridLayout(g)
         self.b_outputs = QtWidgets.QPushButton("Outputs…")
         self.b_outputs.clicked.connect(self._open_outputs)
@@ -456,7 +457,12 @@ class AcquireWindow(QtWidgets.QMainWindow):
         i = self.sb_sound.findData(keep.split("  (")[0]) if keep else -1
         self.sb_sound.setCurrentIndex(max(i, 0))
         n = len(lib.sounds) - 1
-        self.sb_label.setText(f"{n} sound(s) in {lib.folder}" + ("" if lib.folder.is_dir() else " (folder missing)")
+        try:
+            shown = lib.folder.resolve().relative_to(project_root()).as_posix() + "/"
+        except ValueError:
+            shown = str(lib.folder)
+        self.sb_label.setText(f"{n} sound(s) in {shown} + test_tone" + (
+            "" if lib.folder.is_dir() else " (folder missing: create it and add WAV/FLAC files)")
                               + "".join(f"<br><small>{x}</small>" for x in lib.notes[:3]))
 
     def _reload_sounds(self) -> None:

@@ -1,9 +1,10 @@
-# Installing MAVRIC on a new Windows PC
+# Installing MAVRIC from scratch (Windows)
 
 How to set up a MAVRIC acquisition and analysis PC, starting from a clean Windows installation. It covers the tools,
 the drivers and vendor software for the supported hardware, MAVRIC itself, the firmware and the first checks.
 For a PC that already has Git, conda and the drivers, the short version in the [README](../README.md#install) is
-enough.
+enough. Once installed, continue with the [quick-use guide](quickstart.md): configuration, device setup and the
+first session.
 
 - **Starting point:** Windows 10 or 11, 64-bit, with internet access. Nothing else is assumed.
 - **Hardware covered:** RFID Arduino MEGA 2560 with ID-20LA readers, I/O Arduino UNO, FLIR / Point Grey USB3
@@ -155,6 +156,9 @@ Install the **pylon Software Suite** from [baslerweb.com](https://www.baslerweb.
    control panel asks for one.
 3. Windows may make outputs 3–4 the default playback device. Set the default playback device back to outputs 1–2
    in *Sound settings* if Windows sounds go to the wrong speakers.
+4. **Connections** (wiring in [wiring.md §7](wiring.md#7-audio-motu-m4-two-rode-nt5-sync-pulse-four-speakers)):
+   microphones on In 1–2 with 48 V on, the sync cable from the RFID MEGA (D50) on In 3, speakers on Out 1–4. The
+   headphone output carries Out 1–2 only, which is enough for a first check without speakers.
 
 ### 4.5 Intan RHD recording controller (only for Intan outputs) · *admin*
 
@@ -260,18 +264,21 @@ conda env update -f environment.yml --prune
 
 ## 6. Your rig configuration
 
-The repository ships only example settings (`config\examples\`). Your own files in `config\` are ignored by git, so
-tag IDs, serial numbers, ports and ROIs stay on this PC.
+The repository ships only example settings (`config\examples\`). Your own files in `config\`, your recordings in
+`sessions\` and your stimuli in `sounds\` are ignored by git, so tag IDs, serial numbers, ports, ROIs and data stay
+on this PC.
 
-- **Moving from another PC:** copy its `config\*.yaml`, `config\tags.csv` and `config\rois.json` into
-  `C:\Code\MAVRIC\config\`, replacing the example copies. Then check the ports and serials (below).
-- **Starting fresh:** edit the copies in `config\`.
+- **Moving from another PC:** copy its `config\*.yaml`, `config\tags.csv`, `config\rois.json` and the `sounds\`
+  folder into `C:\Code\MAVRIC\`, replacing the example copies. Then check the ports and serials (below).
+- **Starting fresh:** edit the copies in `config\`. Every setting is explained in the
+  [quick-use guide §3](quickstart.md#3-configuration).
 
 | File | Set |
 |---|---|
-| `rig.yaml` | `rfid.port` (COM port of the MEGA, or `auto`), `antennas` (reader number → place name), `cameras` (backend `flir`, serial number, fps, `record: continuous` or `triggered`), `audio` (device `MOTU`, `host_api: ASIO`, inputs, speakers, `enabled`), `paths.sessions_dir` |
+| `rig.yaml` | `rfid.port` (COM port of the MEGA, or `auto`), `antennas` (reader number → place name), `cameras` (backend `flir`, serial number, fps, `record: continuous` or `triggered`), `audio` (device `MOTU`, `host_api: ASIO`, inputs with the sync input, speakers, `enabled`), `paths.sessions_dir` |
 | `tags.csv` | one row per tag: `tag_id,subject,color` |
 | `outputs.yaml` | I/O Arduino port, rules and camera clips (easier from the acquire window: *Outputs…*) |
+| `sounds\` | stimuli to play on the speakers (WAV/FLAC, ideally 48 kHz mono); create the folder if you play sounds |
 
 - **Recordings on the data drive:** in `rig.yaml`, set `paths: sessions_dir: D:\MAVRIC_sessions`.
 - **Camera serials:** shown by `mavric ports` and in SpinView.
@@ -324,12 +331,14 @@ Connect one device at a time and check it before recording. The full bring-up or
 | RFID MEGA + readers | `mavric link-test --port COM3` | steady lines at 8 Hz; each tag shows at the reader you hold it to |
 | Camera | `mavric camtest --cam cam0` | measured fps, no drops, clock fit; snapshot in `sessions\_camtest_cam0.png` |
 | MOTU M4 | `mavric audio devices`, then `mavric audio test --tones` | the M4 marked `<- configured`; tones on each speaker, levels and sync pulses on the inputs |
+| Speakers / headphones | `mavric audio play test_tone --speaker spk1 --gain-db -20` | a short 1 kHz beep; then `mavric audio sounds` lists your stimuli |
 | I/O Arduino | `mavric outputs test io` | `MAVRIC_IO 1.0 …` |
 | Intan RHX (TCP) | acquire → *Outputs…* → select the Intan device → *Test* | RHX answers |
 | MATLAB | in MATLAB: `matlab.engine.shareEngine('mavric')`, then *Test* on the MATLAB device | MATLAB answers |
 | Whole rig | `mavric acquire` | live view, live RFID, sync LED box blinking every 2–6 s, audio meters |
 
 Then make a short test recording and run `mavric analyze sessions\<session>`: the sync check should say **PASS**.
+The [quick-use guide](quickstart.md) takes it from here: drawing the ROIs, recording, reviewing.
 
 ---
 
@@ -349,7 +358,7 @@ Then make a short test recording and run `mavric analyze sessions\<session>`: th
 
 ## 10. Tested versions
 
-MAVRIC 0.8.0 was tested on Windows 11 24H2 with:
+MAVRIC 0.8.x was tested on Windows 11 24H2 with:
 
 | Component | Version |
 |---|---|
@@ -381,5 +390,5 @@ Newer versions should work. The one hard rule is that **PySpin must match the Sp
 | "Could not load the Qt platform plugin" | `pip uninstall opencv-python`, keeping `opencv-python-headless` |
 | `mavric selftest` fails right after installing | check that `conda activate mavric` was run first; otherwise open an [issue](https://github.com/JesusJBallesteros/MAVRIC/issues) with the output |
 
-More detail: [README](../README.md) (user manual), [reference.md](reference.md) (every option),
-[wiring.md](wiring.md) (wiring and bring-up).
+More detail: [README](../README.md) (user manual), [quickstart.md](quickstart.md) (configuration and setup),
+[reference.md](reference.md) (every option), [wiring.md](wiring.md) (wiring and bring-up).

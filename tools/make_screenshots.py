@@ -92,6 +92,16 @@ def main() -> None:
     shutil.copytree(ROOT / "config" / "examples", tmp / "config")  # the example rig, not the lab's own
     rig_file = tmp / "config" / "rig.yaml"
     os.environ["MAVRIC_ROOT"] = str(tmp)  # windows that call load_rig() themselves see the example rig too
+    import numpy as np
+    import soundfile as sf
+
+    sr, rng = 48000, np.random.default_rng(1)  # a small demo stimulus library for the soundboard
+    (tmp / "sounds" / "calls").mkdir(parents=True)
+    t = np.arange(int(0.6 * sr)) / sr
+    for name, f0 in (("calls/call_A", 620.0), ("calls/call_B", 480.0)):
+        x = sum(np.sin(2 * np.pi * k * f0 * t) / k for k in (1, 2, 3)) * np.hanning(t.size) * 0.25
+        sf.write(tmp / "sounds" / f"{name}.wav", x, sr)
+    sf.write(tmp / "sounds" / "noise_burst.wav", rng.normal(0, 0.05, sr // 2), sr)
 
     from mavric.acquire import simulation_controller
     from mavric.config import load_rig
@@ -115,7 +125,7 @@ def main() -> None:
     (tmp / "sessions").mkdir()
     ctl = simulation_controller(rig, seed=5)
     win = AcquireWindow(ctl, sim=True)
-    win.resize(1500, 1460)
+    win.resize(1500, 1600)
     win.show()
     ctl.connect_rfid(ctl._sim_source)
     for c in rig["cameras"]:
@@ -124,12 +134,15 @@ def main() -> None:
     win._build_audio_views()
     win._refresh_views(select="cam0")
     win.name_edit.setText("demo")
+    win.sb_sound.setCurrentIndex(max(win.sb_sound.findData("calls/call_A"), 0))
+    win.sb_speaker.setCurrentIndex(min(2, win.sb_speaker.count() - 1))
+    win.sb_gain.setValue(-6.0)
     pump(app, 8)
-    annotate(win, [(group(win, "Devices"), 1), (group(win, "Audio inputs"), 2),
-                   (group(win, "Place ROIs (one per antenna) and sync LED"), 3), (group(win, "Live RFID"), 4),
-                   (group(win, "Recording"), 5),
-                   (group(win, "Outputs and camera clips (TTL, Intan, MATLAB, messages, video clips)"), 6),
-                   (win.video, 7), (win.spec, 8), (button(win, "Help"), 9)],
+    annotate(win, [(group(win, "Devices"), 1), (group(win, "Audio inputs"), 2), (group(win, "Soundboard"), 3),
+                   (group(win, "Place ROIs (one per antenna) and sync LED"), 4), (group(win, "Live RFID"), 5),
+                   (group(win, "Recording"), 6),
+                   (group(win, "Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)"), 7),
+                   (win.video, 8), (win.spec, 9), (button(win, "Help"), 10)],
              OUT / "acquire.png", scale=0.8)
     win.view_combo.setCurrentIndex(win.view_combo.findData(GRID))
     win.resize(1500, 760)

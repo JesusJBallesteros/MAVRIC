@@ -575,7 +575,8 @@ def cmd_selftest(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="mavric", description="Video + RFID acquisition, labeling and validation")
+    p = argparse.ArgumentParser(prog="mavric", description="MAVRIC: synchronized video, audio and RFID "
+                                                           "acquisition, review, analysis and outputs")
     p.add_argument("--rig", default=None, help="rig.yaml (default config/rig.yaml)")
     from .about import version_string
 
@@ -584,17 +585,17 @@ def main(argv=None):
 
     a = sub.add_parser("acquire", help="acquisition GUI (or --headless)")
     a.add_argument("--sim", action="store_true", help="simulated cage instead of hardware")
-    a.add_argument("--headless", action="store_true")
-    a.add_argument("--duration", type=float, default=30)
-    a.add_argument("--name", default="headless")
-    a.add_argument("--seed", type=int, default=0)
-    a.add_argument("--no-camera", action="store_true")
+    a.add_argument("--headless", action="store_true", help="record without a window, then exit")
+    a.add_argument("--duration", type=float, default=30, help="(headless) recording length (s)")
+    a.add_argument("--name", default="headless", help="(headless) session name")
+    a.add_argument("--seed", type=int, default=0, help="(sim) random seed of the simulated cage")
+    a.add_argument("--no-camera", action="store_true", help="(headless) record without cameras")
     a.add_argument("--arm-outputs", action="store_true", help="(headless) start and arm the output rules")
     a.add_argument("--audio", action="store_true", help="(headless) record audio even if audio.enabled is false")
     a.add_argument("--no-audio", action="store_true", help="(headless) do not record audio")
     a.set_defaults(fn=cmd_acquire)
 
-    r = sub.add_parser("review", help="labeling / curation / analysis GUI")
+    r = sub.add_parser("review", help="review GUI: place labels, RFID curation, sound events (video and/or audio)")
     r.add_argument("session")
     r.add_argument("--annotator", default="", help="your initials; skips the start dialog")
     r.add_argument("--only", choices=["video", "audio"], help="review only the video or only the audio")
@@ -611,8 +612,8 @@ def main(argv=None):
 
     v = sub.add_parser("render", help="annotated video")
     v.add_argument("session")
-    v.add_argument("--start", type=float, default=0.0)
-    v.add_argument("--stop", type=float, default=None)
+    v.add_argument("--start", type=float, default=0.0, help="session time to start at (s)")
+    v.add_argument("--stop", type=float, default=None, help="session time to stop at (s; default: end)")
     v.set_defaults(fn=cmd_render)
 
     b = sub.add_parser("import-boris", help="import BORIS aggregated events as manual labels")
@@ -625,10 +626,10 @@ def main(argv=None):
     b.set_defaults(fn=cmd_import_boris)
 
     s = sub.add_parser("simulate", help="write a synthetic session with ground truth")
-    s.add_argument("out", nargs="?", default="sessions")
-    s.add_argument("--duration", type=float, default=300)
-    s.add_argument("--seed", type=int, default=0)
-    s.add_argument("--name", default="sim")
+    s.add_argument("out", nargs="?", default="sessions", help="folder to write the session into")
+    s.add_argument("--duration", type=float, default=300, help="session length (s)")
+    s.add_argument("--seed", type=int, default=0, help="random seed")
+    s.add_argument("--name", default="sim", help="session name")
     s.add_argument("--noise", type=float, default=0.15, help="label timing noise (s)")
     s.add_argument("--label-span", type=float, default=None, help="label only the first N s")
     s.add_argument("--audio", action="store_true", help="also simulate the audio inputs (mics + sync pulse)")
@@ -638,14 +639,14 @@ def main(argv=None):
 
     lt = sub.add_parser("link-test", help="print decoded RFID lines from the Arduino")
     lt.add_argument("--port", default=None)
-    lt.add_argument("--seconds", type=float, default=15)
+    lt.add_argument("--seconds", type=float, default=15, help="how long to print lines")
     lt.add_argument("--all", action="store_true", help="also print NONE heartbeat lines")
     lt.set_defaults(fn=cmd_link_test)
 
     ct = sub.add_parser("camtest", help="grab from one camera (or all at once): fps, drops, hardware clock, sync warnings")
     ct.add_argument("--cam", default=None, help="camera id from rig.yaml (default: first), or 'all' to grab from "
                     "every camera at the same time")
-    ct.add_argument("--seconds", type=float, default=5.0)
+    ct.add_argument("--seconds", type=float, default=5.0, help="how long to grab")
     ct.add_argument("--backend", default=None, help="override the backend, e.g. synthetic")
     ct.set_defaults(fn=cmd_camtest)
 
@@ -661,7 +662,7 @@ def main(argv=None):
     au.add_argument("name", nargs="?", default=None, help="play: sound name (`mavric audio sounds`)")
     au.add_argument("--speaker", default="all", help="play: speaker name(s) or output(s), comma-separated, or all")
     au.add_argument("--gain-db", type=float, default=0.0, help="play: gain applied to the file (dB)")
-    au.add_argument("--seconds", type=float, default=10.0)
+    au.add_argument("--seconds", type=float, default=10.0, help="test: how long to record and measure")
     au.add_argument("--tones", action="store_true", help="test: play a 1 kHz tone on each speaker in turn")
     au.add_argument("--tone-db", type=float, default=-30.0, help="tone level, dBFS")
     au.add_argument("--sim", action="store_true", help="test / play: simulated interface")

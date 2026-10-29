@@ -18,9 +18,14 @@ def test_version_and_build_info():
     from mavric import __version__
     from mavric.about import LICENSE, build_info, version_string
 
+    import tomllib
+
+    from mavric.about import SOURCE_ROOT
+
+    project = tomllib.loads((SOURCE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     b = build_info()
-    assert b["version"] == __version__ == "0.8.0" and LICENSE == "MIT"
-    assert version_string().startswith("MAVRIC 0.8.0")
+    assert b["version"] == __version__ == project["version"] and LICENSE == "MIT"
+    assert version_string().startswith(f"MAVRIC {__version__}")
     if b["commit"]:
         assert len(b["commit"]) == 7
 
@@ -77,7 +82,9 @@ def test_review_has_tips_and_help(app, tmp_path):
     from PySide6 import QtWidgets
 
     about_text = " ".join(lbl.text() for lbl in a.findChildren(QtWidgets.QLabel))
-    assert "0.8.0" in about_text and "MIT" in about_text and "Ballesteros" in about_text
+    from mavric import __version__
+
+    assert __version__ in about_text and "MIT" in about_text and "Ballesteros" in about_text
     win.sound.close()
     win.dirty = win.sound.dirty = False
     win.close()

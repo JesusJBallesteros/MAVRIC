@@ -1,113 +1,70 @@
 # MAVRIC reference
 
-> The detailed reference: installation variants, every option, the file formats and how the synchronization
-> works. The short user manual is the [README](../README.md).
+> Every option in depth, the file formats and how the synchronization works. The user manual is the
+> [README](../README.md); installation is in [installation.md](installation.md), configuration and device setup in
+> [quickstart.md](quickstart.md), wiring in [wiring.md](wiring.md).
 
+**What it does.** MAVRIC records RFID-tagged subjects at *places* (wherever an RFID reader sees tags) with cameras and
+microphones on one clock. It checks that clock with a random sync pulse, supports blind human labeling of place
+occupancy and sound events, validates RFID against the labels, and drives outputs (sounds, TTL, Intan, MATLAB,
+programs, network messages, camera clips) from RFID events. The result is trustworthy **subject × place × time**
+records, with synchronized video and audio.
 
-**What it does.** Video + RFID identification of individual pigeons on RFID perches. It acquires synchronized
-camera video and Arduino RFID reads, supports human ground-truth labeling, and validates RFID against video.
-The output is trustworthy **ID × location × time** records.
-
-**Scope.** The first target is a single cage:
-- 4–5 tagged pigeons
-- 4 RFID perches, each with one ID-20LA reader on an Arduino MEGA (the [MultiRFID](https://github.com/JesusJBallesteros/MultiRFID) Arduino path)
-- one industrial camera
+**Reference rig:** one cage, 4–5 tagged subjects, 4 places, each with one ID-20LA reader on an Arduino MEGA (the
+[MultiRFID](https://github.com/JesusJBallesteros/MultiRFID) Arduino path), one or two industrial cameras, a MOTU M4
+with two microphones and four speakers.
 
 | Stage | What it does | Command |
 |---|---|---|
-| Acquire | Live camera, perch ROIs tied to antennas, live RFID overlay, synchronized recording | `mavric acquire` |
-| Label / curate | Blind ground-truth labeling of perch occupancy; RFID curation; disagreement navigation; sound events (also for sessions without video) | `mavric review <session>` |
-| Analyze | Clock sync + LED validation, RFID bouts, accuracy vs labels, time budgets, plots | `mavric analyze <session>` |
+| Acquire | Live cameras, place ROIs tied to antennas, live RFID and audio, synchronized recording | `mavric acquire` |
+| Review | Blind ground-truth labeling of place occupancy; RFID curation; disagreement navigation; sound events (also for sessions without video) | `mavric review <session>` |
+| Analyze | Clock sync + LED and audio validation, RFID bouts, accuracy vs labels, time budgets, plots | `mavric analyze <session>` |
 | Render | Annotated video (ROIs, RFID ID, label, disagreements) | `mavric render <session>` |
+| Compress | H.264 copies of the raw video, every frame kept, for sharing and DeepLabCut | `mavric compress <session>` |
 | BORIS stopgap | Use BORIS labels as ground truth | `mavric import-boris <session> <export.tsv>` |
-| Triggered clips | Record video only while RFID detects a tag (any camera, incl. ones not used for ID) | `triggers:` in `rig.yaml` |
-| Outputs | Drive TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs or network messages from RFID events | acquire → **Outputs…**, `mavric outputs` |
+| Triggered clips | Record video only while RFID detects a tag (any camera, incl. ones not used for ID) | acquire → **Outputs…** → Camera clips |
+| Outputs | Drive TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs, network messages or sounds from RFID events | acquire → **Outputs…**, `mavric outputs` |
+| Sounds | A stimulus library played by hand (soundboard) or by rules, logged to the sample | `mavric audio sounds`, `mavric audio play` |
 
-## Documentation
+## Install
 
-- [Project brief](project_brief.md): aims, needs and decisions, with post-hoc edits.
-- [Implementation plan](implementation_plan.md): research findings and the technical plan.
-- [Event-driven outputs](outputs_plan.md): feasibility, plan and status.
-- [Audio](audio_plan.md): two-microphone recording and sync, sound-event labeling and speaker playback (built);
-  analysis (planned).
-- [Wiring and pin-map](wiring.md): readers, Arduino MEGA, sync LED and camera GPIO, with a
-  [diagram](wiring_diagram.svg).
+[installation.md](installation.md) covers a new PC from scratch. A few details for other set-ups:
 
-## Install (conda / Miniconda)
-
-The tool runs in its own conda environment, defined in [`environment.yml`](../environment.yml):
-- conda-forge packages only (no Anaconda `defaults` channel)
-- Python 3.12, which keeps DeepLabCut 3.x usable in later phases
-- a few PyPI wheels, explained in the file
-
-**1. Install Miniconda**, if it isn't installed yet, from <https://docs.conda.io/en/latest/miniconda.html>. Run every
-command below in the **Anaconda Prompt (miniconda3)**.
-
-**2. Create the environment and install MAVRIC** into it (editable, so `git pull` updates the code):
+- **The environment** ([`environment.yml`](../environment.yml)) uses conda-forge packages only (no Anaconda
+  `defaults` channel), Python 3.12 (which keeps DeepLabCut 3.x usable later) and a few PyPI wheels, explained in the
+  file.
+- **Tests:** `mavric selftest` runs the suite from any folder; extra pytest arguments pass through, e.g.
+  `mavric selftest -k sync`. A plain `pytest -q` also works, but only from inside the project folder.
+- **Removing:** `conda env remove -n mavric`.
+- **Without conda (alternative):** a plain virtual environment also works:
 
 ```bash
-cd C:\Code\MAVRIC
-conda env create -f environment.yml
-conda activate mavric
-pip install --no-deps -e .
+uv venv .venv --python 3.12
 ```
-
-**3. Optional, run `mavric` from any folder.** By default, configuration (`config/`) and recordings (`sessions/`) are
-found in the current folder or in the checkout. To point the environment at the rig folder instead, set:
 
 ```bash
-conda env config vars set MAVRIC_ROOT=C:\Code\MAVRIC
-conda deactivate
-conda activate mavric
+uv pip install --python .venv/Scripts/python.exe -e ".[gui,basler,dev]"
 ```
 
-**4. Check the installation** (from any folder):
+**Troubleshooting**
+- **`pytest` shows hundreds of collection errors** (numpy import errors from other programs' folders, `PermissionError`
+  on `My Documents`, `Local Settings`, ...): pytest was started outside the project folder, and scans every folder
+  below the current one. Run `mavric selftest` instead, or `cd` into the project folder first.
+- **"Could not load the Qt platform plugin"** usually means a second OpenCV with its own Qt got into the environment.
+  Fix it with `pip uninstall opencv-python`, keeping `opencv-python-headless`.
+- **Keep pip from replacing conda packages:** install MAVRIC with `pip install --no-deps -e .`. Without `--no-deps`,
+  pip may pull a second copy of numpy or Qt from PyPI.
 
-```bash
-mavric --help
-mavric selftest
-```
+## Cameras
 
-The `mavric` command is now available whenever the environment is active (`conda activate mavric`).
-`mavric selftest` runs the project's test suite (about 1 minute) wherever you start it. Extra pytest arguments pass
-through, e.g. `mavric selftest -k sync`. A plain `pytest -q` also works, but only from inside `C:\Code\MAVRIC`.
-
-**Updating:**
-
-```bash
-git pull
-conda env update -f environment.yml --prune
-```
-
-**Removing:** `conda env remove -n mavric`
-
-**Cameras**
 - **Basler:** install the **pylon Software Suite** from Basler (USB3 / GigE drivers, pylon Viewer). The environment
   already contains `pypylon`, the Python binding. `mavric ports` lists the cameras it detects.
-- **FLIR / Point Grey (Chameleon3, Blackfly S, ...):** needs the Spinnaker SDK and PySpin; see
-  [FLIR / Point Grey cameras](#flir--point-grey-cameras-chameleon3) below.
+- **FLIR / Point Grey (Chameleon3, Blackfly S, ...):** needs the Spinnaker SDK and PySpin; see below.
+- **Webcams:** `backend: opencv`, `device: 0` (the camera index). No hardware timestamps, so timing is host-only.
 - **IDS (peak):** the adapter is a stub in `mavric/video/backends.py`. Implement it like `FlirCamera`
   (`mavric/video/flir.py`): return the hardware timestamp and frame id with every frame.
 - **Check any configured camera** before recording: `mavric camtest --cam cam0`. It reports the measured fps, drops,
   the hardware-clock fit and any sync warnings, and saves a snapshot to `sessions/_camtest_cam0.png`.
-
-**Troubleshooting**
-- **`pytest` shows hundreds of collection errors** (numpy import errors from other programs' folders, `PermissionError`
-  on `My Documents`, `Local Settings`, ...): pytest was started outside the project folder. It then scans every folder
-  below the current one, including other programs' bundled Python packages. Run `mavric selftest` instead, or `cd` into
-  `C:\Code\MAVRIC` first.
-- **"Could not load the Qt platform plugin"** usually means a second OpenCV with its own Qt got into the environment.
-  Fix it with `pip uninstall opencv-python`, keeping `opencv-python-headless`.
-- **Keep pip from replacing conda packages:** install MAVRIC with `pip install --no-deps -e .` as shown above. The
-  dependencies already come from `environment.yml`; without `--no-deps`, pip may pull a second copy of numpy or Qt
-  from PyPI.
-
-**Without conda (alternative):** a plain virtual environment also works:
-
-```bash
-uv venv .venv --python 3.12
-uv pip install --python .venv/Scripts/python.exe -e ".[gui,basler,dev]"
-```
 
 ### FLIR / Point Grey cameras (Chameleon3)
 
@@ -189,13 +146,13 @@ All models are global shutter, which gives no motion distortion with flapping wi
 - **Mounting:** mount the camera on a heat-conducting bracket (it runs warm). Operating range is 0–45 °C and 20–80 %
   humidity, non-condensing.
 - **Mono vs colour:** mono models have no IR-cut filter and can work with 850 nm IR lighting. Colour models block IR
-  above about 680 nm, but colour helps human labelling (plumage, coloured leg bands).
+  above about 680 nm, but colour helps human labelling (fur or plumage, coloured markers).
 
 **Sync on the Chameleon3**
 - **Per frame:** the backend records the device timestamp (`TimestampIncrement` ns/tick) and the camera's
   `FrameCounter` chunk.
 - **No per-frame GPIO state:** the Chameleon3's GenICam chunk list has no line-status entry, so the **sync LED in the
-  image** validates video↔RFID timing. That is accurate to about ½ frame, which is enough for perch presence.
+  image** validates video↔RFID timing. That is accurate to about ½ frame, which is enough for place presence.
 - **Optional, for frame-exact sync later:** the opto-isolated input (Line 0, pin 9, 0–30 V) accepts the Arduino's 5 V
   sync signal; connect OPTO_GND (pin 7) first. The opto output (Line 1) can send *exposure active* to the Arduino.
   Using either needs firmware/software work and is not required now.
@@ -219,7 +176,7 @@ mavric analyze sessions/<the simulated session>
 - camera frame drops
 - the sync LED
 - with `--audio`:
-  - two microphones with pigeon calls (`ground_truth_calls.csv`)
+  - two microphones with calls (`ground_truth_calls.csv`)
   - the sync pulse on an AC-coupled line input
   - a +25 ppm interface clock
 
@@ -240,7 +197,7 @@ The full pin-map (ID-20LA module pins, MEGA pin usage, Chameleon3 GPIO connector
 | 3 | 15 | 4 |
 | 4 | 10 (SoftwareSerial) | 5 |
 
-**Sync pins (new):** D52, D50 and D48 give the same pulse ([docs/wiring.md §3](wiring.md)).
+**Sync pins:** D52, D50 and D48 give the same pulse ([docs/wiring.md §3](wiring.md)).
 - **D52, sync LED:** D52 → 330 Ω → red LED → GND. Place it where every camera sees it; a small diffuser helps.
 - **D50, audio:** a 10 kΩ / 1.8 kΩ divider into MOTU M4 In 3 (TRS: tip = signal, ring = GND).
 - **D48, spare:** for Intan DIGITAL IN 2, or a camera input line for frame-exact sync (Basler: Line 1 opto-in,
@@ -265,17 +222,18 @@ arduino-cli upload --fqbn arduino:avr:mega -p COM3 firmware/MultiRFID_Reader_ID2
 
 (`arduino-cli.exe` ships with Arduino IDE 2 under `resources/app/lib/backend/resources/`.)
 
-### Bring-up checklist (bench, before birds)
+### Bring-up checklist (bench, before animals)
 
 1. **Tags:** check they are 125 kHz EM4100. This path cannot read FDX-B.
 2. **Readers and tag map:** run `mavric link-test --port COM3`. Hold each tag at each reader, then:
-   - fill in `config/tags.csv` (tag → pigeon);
-   - fill in `config/rig.yaml → antennas` (reader → perch name).
-3. **Read zone:** with the real leg ring, measure the read range at real perch heights and angles. The ID-20LA's
-   built-in antenna has a short range, so its position under the perch decides where a bird is detected.
-4. **Crosstalk:** in the final layout, check that a tag on one perch is never read on its neighbour.
+   - fill in `config/tags.csv` (tag → subject);
+   - fill in `config/rig.yaml → antennas` (reader → place name).
+3. **Read zone:** with the real tag mount (leg ring, collar, implant), measure the read range at the real distances
+   and angles. The ID-20LA's built-in antenna has a short range, so its position decides where a subject is
+   detected.
+4. **Crosstalk:** in the final layout, check that a tag at one place is never read at its neighbour.
 5. **Latency:** measure the time from landing to first read, and from leaving until the read clears.
-6. **Camera:** all 4 perches and the LED in view, ≥25 fps, fixed exposure and gain, even lighting. Run
+6. **Camera:** every place and the LED in view, ≥25 fps, fixed exposure and gain, even lighting. Run
    `mavric camtest`: no drops, a measured fps equal to the configured one, and no warnings.
 7. **Short test recording:** 5 min, moving tags by hand. In `mavric analyze`, the LED/SYNC check should say **PASS**.
 8. **Long test recording:** ≥80 min, so the `micros()` wrap at 71.6 min is exercised. Drift should be stable.
@@ -289,8 +247,8 @@ arduino-cli upload --fqbn arduino:avr:mega -p COM3 firmware/MultiRFID_Reader_ID2
 2. Draw **one ROI per antenna**. Choose *Draw / reset*, drag the corners, and click an edge to add a corner. Then draw the
    **sync LED box**.
 3. Choose *Save ROIs to rig*, which writes `config/rois.json`.
-4. Check the live view: an ROI lights up in the pigeon's colour while its antenna reads a tag, and the live table and
-   event list show arrivals and departures. The LED box brightness must jump with each flash.
+4. Check the live view: an ROI lights up in the subject's colour while its antenna reads a tag, and the live table
+   and event list show arrivals and departures. The LED box brightness must jump with each flash.
 5. Enter a session name and notes, then record. Every stream is written to disk continuously, so a crash keeps
    everything up to the last second.
 
@@ -342,7 +300,7 @@ mavric compress sessions/<session> --print-ffmpeg      # the equivalent ffmpeg c
   with OpenCV, which needs regular keyframes.
 - **Frame count:** checked after encoding. DLC warns when metadata and real frame counts differ.
 - **Frame size:** DLC's developers advise small frames. A 2× downscale (`--downscale 2`, 640×512 here) or a crop to
-  the perches speeds up training and analysis with little accuracy cost. Downscaled or cropped files no longer match
+  the places speeds up training and analysis with little accuracy cost. Downscaled or cropped files no longer match
   the ROIs, so the review window keeps using the raw video.
 - **Consistency:** train and analyse on videos compressed the same way.
 - **Exposure:** short exposures avoid motion blur better than higher frame rates. Grayscale is fine.
@@ -356,13 +314,13 @@ Sources:
 ### RFID-triggered clips (optional)
 
 Use these to record video only while RFID detects a tag. This works on the main camera or on extra cameras not used
-for identification, such as a close-up of one perch.
+for identification, such as a close-up of one place.
 
 **1. Add the camera to `rig.yaml`**, with its serial number (`mavric ports` lists the FLIR cameras):
 
 ```yaml
 cameras:
-  - id: cam0             # the first camera carries the perch ROIs and the sync LED box
+  - id: cam0             # the first camera carries the place ROIs and the sync LED box
     backend: flir
     device: "12345678"
     record: continuous
@@ -391,17 +349,17 @@ In the acquire window:
   decimation.
 
 **2. Add rules: acquire → Outputs… → Camera clips.**
-- **Each rule sets:** a camera, antennas, birds, and the seconds before and after the presence.
+- **Each rule sets:** a camera, antennas, subjects, and the seconds before and after the presence.
 - **Saving:** the rules go to `config/outputs.yaml` (`clips:`) and apply from the next recording.
 
 The same rules can also be written in `rig.yaml`:
 
 ```yaml
 triggers:
-  - name: perchB
+  - name: placeB
     camera: cam1
     antennas: [2]        # or "any"
-    match: any           # or [S01, S03] (pigeon names) / tag IDs
+    match: any           # or [S01, S03] (subject names) / tag IDs
     pre_s: 3             # from the camera's ring buffer, i.e. before the first read
     post_s: 5            # after the last read
     max_s: 300           # longer clips are split
@@ -410,12 +368,12 @@ triggers:
 **How clips behave:**
 - A clip starts on the RFID round in which a matching tag appears.
 - A matching arrival during the post-roll extends the clip.
-- Birds that are already present when recording starts trigger immediately.
+- Subjects that are already present when recording starts trigger immediately.
 
 **Where clips go:**
 - Video: `clips/<camera>_<rule>_<nnn>.mp4`.
 - Timing: `clips/<…>_frames.csv`, with the same columns and session clock as `frames_<cam>.csv`.
-- Registry: `session.json["clips"]`, listing the trigger time, antenna, tag/pigeon, the number of frames taken from the
+- Registry: `session.json["clips"]`, listing the trigger time, antenna, tag/subject, the number of frames taken from the
   ring buffer, and why the clip ended.
 
 The acquire window shows each rule's state. `mavric analyze` writes `analysis/clips.csv`, which places every clip on
@@ -426,15 +384,14 @@ the session timeline (camera clock fit) and links it to the RFID bout that trigg
 ### Event-driven outputs (optional)
 
 **What it does:** RFID events can drive other devices: TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs,
-network messages and sounds on the speakers. Background, feasibility and latency figures are in [docs/outputs_plan.md](outputs_plan.md);
-wiring is in [docs/wiring.md §6](wiring.md).
+network messages and sounds on the speakers. Wiring is in [wiring.md §6](wiring.md#6-io-arduino-event-driven-outputs).
 
 **Setup**
 1. In the acquire window, open **Outputs…**.
 2. **Devices tab:** add the devices.
 3. **Rules tab:** add rules. Each rule sets:
    - which antennas (or any)
-   - which birds (or any)
+   - which subjects (or any)
    - the event: **on enter**, **on leave** or **while present** (a start/stop pair)
    - the device action
    - refractory period, delay, and maximum firings per minute
@@ -453,7 +410,8 @@ wiring is in [docs/wiring.md §6](wiring.md).
 | **Audio speakers** | `play` (sound, speakers, gain dB, loop) · `stop` (speakers or all) · `hold_play` (loop while present, fade out after) | Connect audio first; sounds come from the library (below) |
 | **Simulated** | `mark` | logs only |
 
-**Placeholders.** Texts and arguments accept `{event} {rule} {antenna} {roi} {pigeon} {tag} {t} {utc} {session}`.
+**Placeholders.** Texts and arguments accept `{event} {rule} {antenna} {roi} {subject} {tag} {t} {utc} {session}`
+(`{pigeon}`, the older name of `{subject}`, still works).
 `{t}` is the session time in seconds, so `{t:.3f}` gives milliseconds. A sound name accepts them too:
 `{subject}_call` plays a different file for each subject.
 
@@ -469,7 +427,7 @@ wiring is in [docs/wiring.md §6](wiring.md).
 ```bash
 mavric outputs list
 mavric outputs test io
-mavric outputs fire intan_perchB
+mavric outputs fire intan_placeB
 mavric acquire --headless --sim --arm-outputs --duration 30
 ```
 
@@ -488,10 +446,10 @@ pin before acknowledging.
 - **Plays** stimuli on the four speakers (Out 1–4), opened in the same stream: by hand from the soundboard, or from
   output rules. Each played sound is logged at the recording sample where it reached the speaker output.
 
-The plan and status are in [docs/audio_plan.md](audio_plan.md); wiring is in [docs/wiring.md §7](wiring.md).
+Wiring is in [wiring.md §7](wiring.md#7-audio-motu-m4-two-rode-nt5-sync-pulse-four-speakers).
 
 **Setup**
-1. Install the MOTU M-Series driver and connect the M4 (§7 of the wiring guide).
+1. Install the MOTU M-Series driver and connect the M4 ([installation.md §4.4](installation.md#44-motu-m4-audio-interface--admin)).
 2. Check `rig.yaml → audio` (device, inputs, speakers), then run:
    ```bash
    mavric audio devices
@@ -532,8 +490,8 @@ mavric audio play test_tone --speaker spk1 --gain-db -10
 - **Before it clips:** the soundboard, the rule log and `mavric audio play` say *LIMITED* when a sound's peak plus its
   gain is above the limit.
 - **While playing:** the audio panel warns when the limiter was hit.
-- **Speaker calibration:** whether each speaker needs a calibrated level at the birds' position (SPL meter) is still
-  open. Until then, keep the gain per rule and note the M4's volume knob position (it sets Out 1–2).
+- **Speaker calibration:** whether each speaker needs a calibrated level at the subjects' position (SPL meter) is
+  still open. Until then, keep the gain per rule and note the M4's volume knob position (it sets Out 1–2).
 
 **Soundboard** (acquire window, under the audio meters, once audio is connected):
 - choose a sound, a speaker (or all), a gain and optionally *loop*; then press **▶ Play sound**
@@ -542,7 +500,7 @@ mavric audio play test_tone --speaker spk1 --gain-db -10
 - each play is logged in `actions.csv` (event `manual`) and `audio_playback.csv`
 
 **From rules.** Add a device of type *Audio speakers* in **Outputs…** and give rules a `play`, `stop` or `hold_play`
-action. The sound and speaker fields list the library and `rig.yaml` speakers. Example: "S03 lands on PerchB → play
+action. The sound and speaker fields list the library and `rig.yaml` speakers. Example: "S03 arrives at PlaceB → play
 `call_A` on spk2 once, refractory 30 s".
 
 **The log: `audio_playback.csv`.** One row per played sound, written when it ends:
@@ -579,8 +537,8 @@ the review to one.
 
 | Key | Action |
 |---|---|
-| ↑/↓ | Choose a perch |
-| `1`–`5` | From now on this pigeon is on the perch |
+| ↑/↓ | Choose a place |
+| `1`–`9` | From now on this subject is at the place (the order of `tags.csv`) |
 | `0` | Empty |
 | Del | Remove the change point in effect |
 | Space | Play / pause |
@@ -602,7 +560,7 @@ Choose *Analyze* for the report, and *Render* for the annotated video.
 
 **Sound events** (sessions with audio).
 
-**Lanes:** under the perch timeline:
+**Lanes:** under the place timeline:
 - a waveform overview of both microphones
 - one spectrogram per microphone, shown when the view spans 60 s or less (zoom with the wheel)
 
@@ -612,7 +570,7 @@ Choose *Analyze* for the report, and *Render* for the annotated video.
 |---|---|
 | `S` / `E` | Start / end a sound event at the playhead |
 | `F1`–`F9` | Event type (edit the list with *Types…*, saved in `config/sound_types.yaml`) |
-| `Alt+1`–`9`, `Alt+0` | Emitter = pigeon 1–9, or unknown (*system:<speaker>* is in the list) |
+| `Alt+1`–`9`, `Alt+0` | Emitter = subject 1–9, or unknown (*system:<speaker>* is in the list) |
 | `A` | Use the top emitter suggestion |
 | `Y` / `R` | Accept / reject the automatic proposal at or after the playhead |
 | `,` `.` | Previous / next event or proposal |
@@ -624,8 +582,8 @@ Choose *Analyze* for the report, and *Render* for the annotated video.
   lower the pitch, which helps with fast or high calls.
 - **Emitter suggestions** combine:
   - which microphone the sound was louder on (and reached first, for broadband sounds)
-  - which birds RFID places on a perch at that moment
-  - `audio.mic_near` in `rig.yaml`: which perches each microphone is next to.
+  - which subjects RFID detects at each place at that moment
+  - `audio.mic_near` in `rig.yaml`: which antennas each microphone is next to.
 - **Played sounds:** sounds the rig played (`audio_playback.csv`, from the soundboard and rules) appear automatically
   with type *playback*, emitter *system:<speaker>* and the sound's name as the note.
 
@@ -642,9 +600,9 @@ mavric sounds import <session> labels.txt      # Audacity label track or Raven s
 ```
 
 **BORIS instead (stopgap):** set it up in BORIS, then import the export.
-1. Make one *subject* per pigeon, using the names from `tags.csv`.
-2. Make one *state* behaviour per perch, named exactly like the ROIs (or use `--map-behavior`).
-3. Code the session's `cam0.mp4` and export **Aggregated events** as TSV.
+1. Make one *subject* per tagged subject, using the names from `tags.csv`.
+2. Make one *state* behaviour per place, named exactly like the ROIs (or use `--map-behavior`).
+3. Code the session's video (e.g. `cam0_compressed.mp4`) and export **Aggregated events** as TSV.
 4. Run `mavric import-boris <session> export.tsv`.
 
 ### 3. Analyze: `mavric analyze <session>`
@@ -654,21 +612,21 @@ Writes `analysis/` in the session folder:
 | File | Content |
 |---|---|
 | `sync_report.json` | Clock fits (offset, drift ppm, latency), LED/SYNC match and residuals, stream health (dropped rounds, bad lines, checksum failures, unknown tags) |
-| `rfid_samples.csv`, `rfid_bouts.csv` | Tag reads on the video timeline; bouts per pigeon × perch |
+| `rfid_samples.csv`, `rfid_bouts.csv` | Tag reads on the session timeline; bouts per subject × place |
 | `comparison_bins.csv`, `accuracy_per_roi.csv`, `accuracy_per_pigeon.csv`, `confusion_seconds.csv`, `event_matching.csv` | RFID vs labels |
-| `time_budget_*.csv`, `transitions_rfid.csv` | Time per pigeon per perch, perch-to-perch moves |
-| `*.png` | Occupancy timeline per pigeon, accuracy per perch, confusion, bout timing error, time budget, transitions, sync diagnostics |
+| `time_budget_*.csv`, `transitions_rfid.csv` | Time per subject per place, place-to-place moves |
+| `*.png` | Occupancy timeline per subject, accuracy per place, confusion, bout timing error, time budget, transitions, sync diagnostics |
 | `summary.json` | Everything above, in one file |
 
-**Metrics.** Computed per perch, in time bins (default 0.5 s) within the reviewed coverage:
+**Metrics.** Computed per place, in time bins (default 0.5 s) within the reviewed coverage:
 
 | Metric | Meaning |
 |---|---|
-| Presence sensitivity | Of the time a bird was on the perch, the share RFID saw a tag |
-| Precision | Of the time RFID saw a tag, the share a bird was really there |
+| Presence sensitivity | Of the time a subject was at the place, the share RFID saw a tag |
+| Precision | Of the time RFID saw a tag, the share a subject was really there |
 | Identity accuracy when detected | Correct ID among detected time |
 | Agreement, Cohen's κ | Overall agreement between RFID and labels |
-| Crosstalk vs phantom | A false read is *crosstalk* when that pigeon was really on another perch, otherwise *phantom* |
+| Crosstalk vs phantom | A false read is *crosstalk* when that subject was really at another place, otherwise *phantom* |
 
 **Bout level** (±1 s tolerance): recall, precision, arrival/departure latency, and fragmentation of a visit into several RFID bouts.
 
@@ -691,38 +649,45 @@ Writes `analysis/` in the session folder:
    - Audio samples are mapped to session time by interpolating through the matched pulses.
    - Without the sync channel, a host-clock fit of the audio blocks is used instead.
 
-**Why not a hardware trigger:** a TTL frame trigger is not needed for perch presence at this accuracy. It remains an
+**Why not a hardware trigger:** a TTL frame trigger is not needed for place presence at this accuracy. It remains an
 option for frame-locked multi-camera capture.
 
 ## Session folder
 
 ```
 sessions/<YYYYmmdd_HHMMSS>_<name>/
-  session.json        start (UTC + local), clock anchor, rig snapshot, cameras, stats
+  session.json        start/stop (UTC + local), software versions, clock anchor, rig snapshot, cameras, audio
+                      (channels, sounds library with SHA-1), clips, stats
   tags.csv rois.json  snapshot of the tag map and ROIs used
   rfid_raw.csv        host_t, segment, micros, arduino_us, kind, tag, reader, checksum_ok, raw
   cam0_raw_000.mkv …  raw video, lossless FFV1 chunks (~2 GB; .avi if uncompressed); cam0.mp4 when recording H.264
   cam0_compressed.mp4 made by `mavric compress` (H.264, every frame, constant rate)
   frames_cam0.csv     frame_idx, grab_idx, host_t, hw_ticks, hw_counter, line_status, led_mean
+  audio_000.flac      audio inputs (e.g. micA, micB, sync) in input-number order, 48 kHz / 24 bit, one file per hour
+  audio_clock.csv     sample, n, host_t, adc_t, flags (block deliveries, for the audio clock fit)
+  audio_edges.csv     sample, sign, amp (sync pulse edges, in samples)
+  audio_playback.csv  sample, n_samples, speaker, sound, gain_db, loop, stopped, source, latency_samples
+  actions.csv         t, event_t, rule, event, source, antenna, roi, pigeon, tag, device, action, params, status,
+                      result, latency_ms, device_us
+  clips/              RFID-triggered clips: <camera>_<rule>_<nnn> (.mp4, or _raw_000.mkv) + _frames.csv
   manual_labels.csv   annotator, roi, pigeon, start_s, stop_s, flag
   label_coverage.csv  annotator, start_s, stop_s
   rfid_curation.csv   antenna, tag, t, start_s, stop_s, verdict
-  audio_000.flac      audio inputs (micA, micB, sync), 48 kHz / 24 bit, one file per hour
-  audio_clock.csv     sample, n, host_t, adc_t, flags (block deliveries, for the audio clock fit)
-  audio_edges.csv     sample, sign, amp (sync pulse edges, in samples)
-  audio_playback.csv  sounds played on the speakers: sample, n_samples, speaker, sound, gain_db, loop, stopped, source
-  clips/              RFID-triggered clips: <camera>_<rule>_<nnn>.mp4 + _frames.csv
-  analysis/
+  sound_events.csv    annotator, start_s, stop_s, type, emitter, channel, f_low_hz, f_high_hz, confidence, source, note
+  sound_coverage.csv  annotator, start_s, stop_s
+  analysis/           analyze, render and sound tools (sync_report.json, summary.json, tables, plots,
+                      audio_time_knots.csv, sound_proposals.csv, annotated_<cam>.mp4, audio_envelope.npz cache)
 ```
 
 All times are seconds since session start. Everything is plain CSV/JSON, so MATLAB reads it directly
-(`readtable`, `jsondecode`).
+(`readtable`, `jsondecode`). The `pigeon` columns hold the subject name from `tags.csv` (the name is historical).
+A file-by-file description is in [quickstart.md §6](quickstart.md#6-the-session-folder).
 
 ## Layout
 
 ```
-firmware/        Arduino sketch with sync LED
-config/          rig.yaml, tags.csv, rois.json (written by the acquire GUI)
+firmware/        RFID sketch with the sync pulse (MultiRFID_Reader_ID20LA_sync), I/O sketch (MAVRIC_IO)
+config/          rig.yaml, tags.csv, rois.json, video.yaml, outputs.yaml, sound_types.yaml; examples/ is tracked
 mavric/rfid/      protocol (parse, EM4100 checksum, micros unwrap), serial thread, presence tracker
 mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthetic; IDS stub), recorder (raw
                  lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest
@@ -730,17 +695,25 @@ mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, plots, render, clips
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling)
 mavric/acquire.py acquisition controller (no GUI), event bus for presence changes
 mavric/triggers.py RFID-triggered clip rules (ring-buffer pre-roll, post-roll, max length)
-mavric/outputs/   event-driven outputs: rules engine, devices (I/O Arduino, Intan RHX, MATLAB, program, UDP/TCP)
-mavric/audio/     audio stream (PortAudio), recorder, sync edge detector, simulated interface, bench check;
-                 review side: source (reading, overview, spectrograms), detect (proposals, suggestions), events
-firmware/MAVRIC_IO/  I/O Arduino sketch (TTL pulses / holds, watchdog)
+mavric/outputs/   event-driven outputs: rules engine, devices (I/O Arduino, Intan RHX, MATLAB, program, UDP/TCP,
+                 speakers)
+mavric/audio/     audio stream (PortAudio, mixer with limiter), recorder, sync edge detector, sound library and
+                 player, simulated interface, bench check; review side: source (reading, overview, spectrograms),
+                 detect (proposals, suggestions), events
 mavric/sim.py     simulated cage for testing and demos
 tests/           pytest suite (unit + simulated end-to-end + real-time headless run)
+tools/           make_overview.py, make_screenshots.py: the README pictures, from simulated data
 ```
 
-## Next steps (not in this milestone)
+## Not built yet
 
-- **DeepLabCut SuperAnimal-Bird:** detect birds in each ROI with no training, to pre-fill label proposals.
+- **Audio analysis** (planned for 0.9.0): sound events linked to RFID bouts, giving call rates per subject and
+  place and responses to played sounds (latency to the first call, and who answered); sound ethograms next to place
+  occupancy; the audio track and a spectrogram strip in the annotated video.
+- **Automatic call classification,** trained on the labeled sound events.
+- **Playback schedules:** playlists and timed stimulus sequences (sounds play by hand or from RFID rules today).
+- **Speaker calibration:** level per speaker at the subjects' position.
+- **DeepLabCut SuperAnimal models:** detect animals in each ROI with no training, to pre-fill label proposals.
 - **RFID → video identity:** PyMouseTracks-style assignment, a DLC `stitch_tracklets(weight_func=...)` hook, and
   identity-head training on single-occupancy frames that RFID has confirmed.
 - **Ethograph export:** xarray TrialTree + `labels.tsv`.

@@ -15,7 +15,8 @@ ACQUIRE = {
     "Connect RFID": "Open the RFID Arduino on the selected port (the board resets, about 2 s). Click again to "
                     "disconnect.",
     "Connect camera": "Open the camera chosen on the left and start its live view. Click again to disconnect.",
-    "Connect audio": "Open the audio interface set in rig.yaml (audio:): level meters, spectrograms, recording",
+    "Connect audio": "Open the audio interface set in rig.yaml (audio:): level meters, sync pulse count, "
+                     "spectrograms, recording, and the Soundboard when speakers are configured",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
     # ROIs
@@ -29,11 +30,13 @@ ACQUIRE = {
     "Live RFID": "Tags read right now, per place",
     "Recording": "Session name, notes and the record button",
     "● Start recording": "Start or stop a session: RFID, video, audio and clips go to sessions/<date>_<name>",
-    "Outputs and camera clips (TTL, Intan, MATLAB, messages, video clips)": "Things that happen when RFID detects "
+    "Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)": "Things that happen when RFID detects "
                                                                             "a subject",
-    "Outputs…": "Devices (I/O Arduino, Intan, MATLAB, programs, network), RFID rules, and camera clip rules",
-    "Arm outputs": "Outputs fire only while armed; disarming releases every held output",
-    "Audio inputs": "Peak level per input (dBFS) with a falling peak hold; CLIP marks overload",
+    "Outputs…": "Devices (I/O Arduino, Intan, MATLAB, programs, network, speakers), RFID rules, and camera clip "
+                "rules",
+    "Arm outputs": "Outputs fire only while armed; disarming releases every held output and stops every sound",
+    "Audio inputs": "Peak level per input (dBFS) with a falling peak hold; CLIP marks overload. The sync input "
+                    "counts the pulses it receives.",
     # soundboard
     "Soundboard": "Play stimuli by hand on any speaker; logged like rule actions (actions.csv, audio_playback.csv)",
     "↻ sounds": "Reload the sound library (audio.sounds_dir, default sounds/) after adding or changing files",
@@ -68,7 +71,8 @@ REVIEW = {
     "Place (Up/Down)": "The place your keys label",
     "▶ Play": "Play / pause (Space)",
     "follow": "Keep the playhead in view while playing",
-    "Save (Ctrl+S)": "Save labels, reviewed spans, curation and sound events (also every minute)",
+    "Save (Ctrl+S)": "Save labels, reviewed spans, curation and sound events (also every minute). Reviewing audio "
+                     "only saves just the sound events.",
     "Analyze": "Sync check, RFID vs labels, plots (also: mavric analyze <session>)",
     "Render annotated video": "Video with ROIs, labels and RFID drawn in (analysis/annotated_<cam>.mp4)",
     "Reset reviewed spans": "Forget which time counts as reviewed (the grey band)",
