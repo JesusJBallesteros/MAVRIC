@@ -47,6 +47,7 @@ C:\Code\MAVRIC\
     video.yaml            camera and recording settings                       written by Video settings…
     outputs.yaml          output devices, rules, camera clip rules            written by Outputs…
     sound_types.yaml      sound event types                                   written by Types… (review)
+    calibration.yaml      lens calibration per camera                         written by Calibrate cameras…
   sessions\               one folder per recording (git ignores it)
   sounds\                 stimuli to play on the speakers (git ignores it)
   firmware\               Arduino sketches
@@ -180,12 +181,23 @@ audio:
 | `led_roi_name` | `SYNC`, the name of the box drawn over the LED. Leave it. |
 | `led_pulse_s` | `0.080`, the firmware's pulse length. It must last at least 2 frames: at 13 fps, lengthen the pulse in the firmware and here. |
 
+**`calibration`: the camera calibration board**
+
+| Key | Set to |
+|---|---|
+| `board.squares` | Squares across and down, held with a black square at the top left, e.g. `[8, 10]` |
+| `board.square_mm` | The square size, measured: 10 squares with calipers, divided by 10 |
+| `board.marker_mm` | The side of the printed markers (the stickers' black square), e.g. `29` |
+| `board.dictionary` | `DICT_4X4_50` (enough for up to 50 markers, i.e. 100 squares) |
+
+`mavric calibrate sheet` prints the stickers for this board ([README](../README.md#calibrate-the-cameras)).
+
 **`paths`**
 
 | Key | Default |
 |---|---|
 | `sessions_dir` | `sessions` (relative to the project folder, or an absolute path) |
-| `tags_file`, `rois_file`, `outputs_file`, `sound_types_file` | the files in `config/` |
+| `tags_file`, `rois_file`, `outputs_file`, `sound_types_file`, `calibration_file` | the files in `config/` |
 
 ### 3.2 `tags.csv`: who is who
 
@@ -213,6 +225,7 @@ You rarely edit these by hand:
 | `video.yaml` | Acquire → *Video settings… → Save* | camera settings and the recording format; they override `rig.yaml` |
 | `outputs.yaml` | Acquire → *Outputs… → Save & restart outputs* | output devices, rules, camera clip rules |
 | `sound_types.yaml` | Review → Sound events → *Types…* | the list of sound event types (F1–F9) |
+| `calibration.yaml` | Acquire → *Calibrate cameras… → Save* | each camera's lens: focal length, image centre, distortion, error, date; `calibration/` keeps the board corners of the views used |
 
 Every session keeps a copy of the tag map and the ROIs it used, so later edits don't change old sessions.
 

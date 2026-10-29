@@ -92,9 +92,20 @@ sync:
   led_roi_name: SYNC  # name of the rectangle ROI over the sync LED
   led_pulse_s: 0.080  # = firmware SYNC_PULSE_US; must cover >= 2 frame intervals (warned otherwise)
 
+# Camera calibration board: a ChArUco board, i.e. a checkerboard with an ArUco marker in every white square.
+# A plain checkerboard becomes one with stickers: `mavric calibrate sheet` prints them for the board below.
+# Hold the board with a black square at the top left. Acquire: Calibrate cameras...
+calibration:
+  board:
+    squares: [8, 10]      # squares across, down
+    square_mm: 39.0       # measure it: 10 squares with calipers, divided by 10
+    marker_mm: 29.0       # printed marker side (the stickers' black square)
+    dictionary: DICT_4X4_50
+
 paths:
   sessions_dir: sessions
   tags_file: config/tags.csv
   rois_file: config/rois.json
   outputs_file: config/outputs.yaml   # event-driven outputs (acquire GUI: Outputs...)
   sound_types_file: config/sound_types.yaml  # sound event types (review GUI: Sound events -> Types...)
+  calibration_file: config/calibration.yaml  # camera calibration (acquire GUI: Calibrate cameras...)

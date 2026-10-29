@@ -543,6 +543,113 @@ def _pair(text: str | None, sep: str = "x", n: int = 2):
     return tuple(vals)
 
 
+def _grab(cfg: dict, n: int = 8):
+    """One frame from a camera that the acquire window is not using (after a few frames to settle)."""
+    from .video.backends import make_backend
+
+    be = make_backend(cfg)
+    be.open()
+    img = None
+    try:
+        for k in range(10 * n):
+            fr = be.grab(2.0)
+            if fr is not None:
+                img = fr.image
+            if img is not None and k >= n:
+                break
+    finally:
+        be.close()
+    return img
+
+
+def cmd_calibrate(args):
+    """Camera calibration: sticker sheet, board check, lens calibration from saved images, summary."""
+    from .config import resolve_path
+    from .video.calibration import BoardDetector, BoardSpec, calibrate_lens, load_calibrations, save_lens
+
+    rig = _rig(args)
+    spec = BoardSpec.from_rig(rig)
+    path = resolve_path(rig["paths"].get("calibration_file", "config/calibration.yaml"))
+    if spec.problems():
+        print("calibration.board in rig.yaml: " + "; ".join(spec.problems()))
+        return 2
+    if args.what == "sheet":
+        from .video.sheet import default_sheet_path, make_sheet
+
+        out = make_sheet(spec, args.out or default_sheet_path(spec, path.parent / "calibration"), args.paper)
+        print(f"{out}\n  {spec.describe()}: print pages 2-3 at 100 % (actual size); page 1 says where each "
+              "sticker goes")
+        return 0
+    if args.what == "show":
+        cals = load_calibrations(path)
+        if not cals:
+            print(f"no lens calibration in {path} yet (acquire: Calibrate cameras...)")
+        for c in cals.values():
+            print(f"{c.summary()}\n    {c.image_size[0]}x{c.image_size[1]}, {c.model} model, {c.date}"
+                  + (f", serial {c.serial}" if c.serial else ""))
+            for why in c.verdict()[1]:
+                print(f"    - {why}")
+        return 0
+    det = BoardDetector(spec)
+    cams = {c["id"]: c for c in rig["cameras"]}
+    if args.what == "check":
+        import cv2
+
+        if args.image:
+            img = cv2.imread(args.image, cv2.IMREAD_UNCHANGED)
+            if img is None:
+                print(f"cannot read {args.image}")
+                return 2
+        else:
+            cid = args.cam or next(iter(cams))
+            if cid not in cams:
+                print(f"no camera {cid!r} in rig.yaml (have {', '.join(cams)})")
+                return 2
+            img = _grab(cams[cid])
+            if img is None:
+                print(f"no frame from {cid}")
+                return 2
+        d = det.detect(img)
+        print(f"{len(d.marker_ids)}/{spec.n_markers} markers, {d.n}/{spec.n_corners} corners"
+              + (f"; MISPLACED OR TURNED: {', '.join(map(str, d.misplaced))} (see the map on page 1 of the sticker "
+                 "sheet)" if d.misplaced else "; no misplaced sticker"))
+        missing = sorted(set(range(spec.n_markers)) - set(d.marker_ids.tolist()))
+        if missing and len(missing) < spec.n_markers:
+            print(f"  not seen: {', '.join(map(str, missing))} (out of view, covered, glare, or too small)")
+        if args.save_image:
+            from .video.calibration import draw_detection
+
+            cv2.imwrite(args.save_image, draw_detection(img, d, spec))
+            print(f"  {args.save_image}")
+        return 0 if d.n and not d.misplaced else 1
+    # lens: from a folder of saved images
+    import cv2
+
+    if not args.images or not args.cam:
+        print("lens needs --cam and --images FOLDER")
+        return 2
+    files = sorted(f for f in Path(args.images).iterdir() if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp",
+                                                                                     ".tif", ".tiff"))
+    views = []
+    for f in files:
+        d = det.detect(cv2.imread(str(f), cv2.IMREAD_UNCHANGED))
+        ok = d.n >= 12 and not d.misplaced
+        print(f"  {f.name}: {d.n} corners" + (f", misplaced {d.misplaced}" if d.misplaced else "")
+              + ("" if ok else "  (left out)"))
+        if ok:
+            views.append(d)
+    if len(views) < 3:
+        print(f"only {len(views)} usable images")
+        return 2
+    cal = calibrate_lens(views, spec, args.cam, args.model)
+    print(cal.summary())
+    for why in cal.verdict()[1]:
+        print(f"  - {why}")
+    if args.save:
+        print(save_lens(path, cal, views))
+    return 0 if cal.verdict()[0] else 1
+
+
 def cmd_compress(args):
     """Raw (or any) videos -> <name>_compressed.mp4 (H.264, every frame kept, constant frame rate)."""
     from .video.compress import compress_path, compress_session, ffmpeg_command, options, session_jobs
@@ -722,6 +829,18 @@ def main(argv=None):
     so.add_argument("--fmax", type=float, default=8000.0, help="detect: band high edge (Hz)")
     so.add_argument("--on-db", type=float, default=12.0, help="detect: dB above the noise floor to start an event")
     so.set_defaults(fn=cmd_sounds)
+
+    ca = sub.add_parser("calibrate", help="camera calibration: sticker sheet, board check, lens from images, show")
+    ca.add_argument("what", choices=["sheet", "check", "lens", "show"])
+    ca.add_argument("--out", help="sheet: PDF to write (default: config/calibration/charuco_stickers_....pdf)")
+    ca.add_argument("--paper", choices=["a4", "letter"], default="a4", help="sheet: paper size")
+    ca.add_argument("--cam", help="check: camera to grab a frame from (not while acquire uses it); lens: its id")
+    ca.add_argument("--image", help="check: an image file instead of a camera")
+    ca.add_argument("--save-image", help="check: write the image with the corners found and misplaced markers")
+    ca.add_argument("--images", help="lens: folder of images of the board")
+    ca.add_argument("--model", choices=["standard", "rational"], default="standard", help="lens: distortion model")
+    ca.add_argument("--save", action="store_true", help="lens: save to config/calibration.yaml")
+    ca.set_defaults(fn=cmd_calibrate)
 
     cp = sub.add_parser("compress", help="raw recordings -> <name>_compressed.mp4 (H.264, DeepLabCut-ready)")
     cp.add_argument("path", help="session folder, video file, or folder of videos")

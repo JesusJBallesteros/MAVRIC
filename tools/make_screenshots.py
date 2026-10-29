@@ -162,6 +162,19 @@ def main() -> None:
         dlg.grab().save(str(OUT / name))
         print("wrote docs/images/" + name)
     dlg.close()
+
+    from mavric.gui.calibration_dialog import CalibrationDialog
+    from mavric.video.calibration import calibrate_lens
+
+    cd = CalibrationDialog(win)  # the synthetic camera shows a simulated board moved by hand
+    cd.resize(1280, 760)
+    cd.show()
+    pump(app, 26)
+    cd._calibrated(calibrate_lens(cd.collector.views, cd.spec, cd.cid))
+    pump(app, 0.6)
+    annotate(cd, [(cd.view, 1), (group(cd, "Board"), 2), (group(cd, "Views"), 3), (group(cd, "Lens"), 4)],
+             OUT / "calibrate.png", scale=0.8)
+    cd.close()
     win.close()
     ctl.shutdown()
 

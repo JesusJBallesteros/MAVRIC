@@ -17,6 +17,8 @@ ACQUIRE = {
     "Connect camera": "Open the camera chosen on the left and start its live view. Click again to disconnect.",
     "Connect audio": "Open the audio interface set in rig.yaml (audio:): level meters, sync pulse count, "
                      "spectrograms, recording, and the Soundboard when speakers are configured",
+    "Calibrate cameras…": "Lens calibration of each connected camera with the ChArUco board (and its sticker sheet); "
+                          "saved in config/calibration.yaml",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
     # ROIs
@@ -194,6 +196,27 @@ VIDEO = {
     "Show ffmpeg commands": "The equivalent ffmpeg command lines, to run by hand",
     "Overwrite existing _compressed files": "Redo files that already exist",
     "triggered clips": "Also compress the RFID-triggered clips",
+}
+
+
+CALIBRATE = {
+    "Simulated board": "Simulated camera only: show a board moved by hand through a known lens, to try the "
+                       "calibration",
+    "Sticker sheet…": "Print ArUco stickers that turn a plain checkerboard into this ChArUco board (PDF at exact "
+                      "size, with a map of where each sticker goes)",
+    "Capture automatically": "Capture a view whenever the board is held still in a new position or angle",
+    "Capture now (Space)": "Capture this view now (the board must be detected, with no misplaced sticker)",
+    "Clear views": "Forget the captured views and start again",
+    "Calibrate": "Fit the lens (focal length, image centre, distortion) to the captured views",
+    "Save": "Save this camera's lens calibration to config/calibration.yaml (other cameras are kept)",
+    "Show straightened image": "Show the image with the lens distortion removed: straight edges should look "
+                               "straight",
+}
+
+CALIBRATE_ATTR = {
+    "cam_combo": "Connected camera to calibrate (each camera separately)",
+    "model_combo": "Distortion model: standard for most lenses; rational for wide-angle lenses with strong "
+                   "distortion",
 }
 
 

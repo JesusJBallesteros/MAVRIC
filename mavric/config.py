@@ -110,6 +110,9 @@ DEFAULT_RIG = {
         "compress": {"codec": "libx264", "crf": 18, "preset": "medium", "gop": 30, "pix_fmt": "yuv420p"},
     },
     "sync": {"led_roi_name": "SYNC", "led_pulse_s": 0.080},
+    "calibration": {  # camera calibration board (ChArUco: a checkerboard with an ArUco marker in each white square)
+        "board": {"squares": [8, 10], "square_mm": 39.0, "marker_mm": 29.0, "dictionary": "DICT_4X4_50"},
+    },
     "audio": {
         "enabled": False,  # headless acquisition connects audio only when enabled (GUI: Connect audio)
         "device": "MOTU",  # name substring, see `mavric audio devices`
@@ -134,6 +137,7 @@ DEFAULT_RIG = {
         "outputs_file": "config/outputs.yaml",
         "sound_types_file": "config/sound_types.yaml",  # sound event types (review GUI)
         "video_settings_file": "config/video.yaml",  # camera/recording settings from the acquire GUI
+        "calibration_file": "config/calibration.yaml",  # camera calibration (acquire GUI: Calibrate cameras...)
     },
 }
 

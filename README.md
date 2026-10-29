@@ -103,7 +103,7 @@ mavric acquire
 
 | | Control | What to do |
 |---|---|---|
-| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Video settings…* sets exposure, gain, size and recording format. |
+| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Video settings…* sets exposure, gain, size and recording format. *Calibrate cameras…* calibrates each camera's lens ([below](#calibrate-the-cameras)). |
 | 2 | **Audio inputs** | Level per input, with a red CLIP warning, and a counter of the sync pulses received. |
 | 3 | **Soundboard** | With speakers configured: play any sound from the library on any speaker, by hand ([§2](#2-sounds-outputs-and-camera-clips)). |
 | 4 | **Place ROIs** | Once per setup, on the first camera: *Draw / reset* one ROI per antenna, then the sync LED box, then *Save ROIs to rig*. |
@@ -138,6 +138,31 @@ clip in progress shows as ● CLIP.
 
 **Recording without the window** (e.g. scheduled): `mavric acquire --headless --duration 3600 --name night01`.
 Add `--audio` and `--arm-outputs` as needed.
+
+### Calibrate the cameras
+
+A lens calibration measures each camera's focal length, image centre and distortion. It is the first step towards
+drawing the place ROIs in every camera and, later, 3D tracking. It needs a **ChArUco board**: a checkerboard with an
+ArUco marker in every white square, so every corner can be identified even when part of the board is hidden.
+
+1. **The board.** Set its size in `config/rig.yaml` under `calibration: board:` (the default is 8 × 10 squares of
+   39 mm). To turn a plain checkerboard into one, print stickers with `mavric calibrate sheet` (or *Sticker sheet…*
+   in the dialog): a PDF at exact size with a map of which sticker goes into which white square. Measure the
+   squares with calipers and enter the size.
+2. **Calibrate cameras…** in the acquire window, one camera at a time. Hold the board still in front of the camera,
+   in a different place and at a different angle each time. A view is captured when the board has been still for a
+   moment in a new position.
+   - **Fill the image:** the cells turn green as corners reach them. Use near and far, and tilt the board 20–40°.
+   - **A red marker** is a sticker in the wrong square or turned. Fix it before going on.
+3. **Calibrate.** **PASS** needs at most 0.5 px of error, at least 12 views, 60 % of the image covered and 4 tilted
+   views. *Show straightened image* removes the lens distortion, so straight edges should look straight. Then
+   *Save*. The result goes to `config/calibration.yaml`.
+
+![Calibrate cameras](docs/images/calibrate.png)
+
+A calibration holds while the lens, focus, zoom and image size stay the same. After changing the image size in
+*Video settings…*, calibrate again (the dialog warns). The simulated camera (`mavric acquire --sim`) shows a
+simulated board, so you can try all of this without hardware.
 
 ## 2. Sounds, outputs and camera clips
 
@@ -301,6 +326,7 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 | `mavric audio devices\|test\|sounds\|play` | audio interfaces, bench check, the sound library, play a sound |
 | `mavric sounds detect\|export\|import <session>` | sound-event proposals, Audacity / Raven exchange |
 | `mavric outputs list\|test\|fire` | output devices and rules from `config/outputs.yaml` |
+| `mavric calibrate sheet\|check\|lens\|show` | calibration board stickers, board check, lens calibration from images, saved calibrations |
 | `mavric import-boris <session> <file.tsv>` | BORIS labels as ground truth |
 | `mavric simulate [--audio] [--playback 20] [--sound-labels]` | a complete simulated session |
 | `mavric ports` | serial ports and FLIR / Basler cameras |
@@ -332,6 +358,7 @@ stay on your computer.
 | `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Video settings…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |
+| `calibration.yaml` | lens calibration per camera (`calibration/` holds the views used) | Acquire: *Calibrate cameras…* |
 
 Every setting is explained in [docs/quickstart.md §3](docs/quickstart.md#3-configuration).
 

@@ -67,6 +67,54 @@ uv pip install --python .venv/Scripts/python.exe -e ".[gui,basler,dev]"
 - **Check any configured camera** before recording: `mavric camtest --cam cam0`. It reports the measured fps, drops,
   the hardware-clock fit and any sync warnings, and saves a snapshot to `sessions/_camtest_cam0.png`.
 
+### Camera calibration
+
+**The board** is a ChArUco board (`calibration.board` in `rig.yaml`): a checkerboard whose white squares each hold
+an ArUco marker.
+- **Layout:** board coordinates are millimetres from the outer corner of the top-left square, which is black, with x
+  to the right and y down. Marker *k* sits in the *k*-th white square, row by row (OpenCV's layout).
+- **Why markers:** every corner gets an identity, so a partly hidden or partly visible board still counts, and
+  cameras agree on which corner is which. That matters for an even × even board, which looks the same turned by
+  180°.
+- **Accuracy:** corner positions come from the checkerboard squares (to a fraction of a pixel); the markers only
+  identify them. A sticker a millimetre off therefore costs no accuracy.
+
+**Stickers for a plain checkerboard:** `mavric calibrate sheet [--out file.pdf] [--paper a4|letter]`.
+- **Page 1:** the steps and a map of the board with each sticker's id, columns A–H and rows 1–10.
+- **The other pages:** the stickers, with every marker drawn as vector cells at exact size, a dashed cut line
+  (marker + 4 mm white margin, at most the square − 2 mm) and the id with ▲ arrows towards the top of the board.
+- **Check the print:** each page has a 50 mm bar.
+- **Check the stuck board:** `mavric calibrate check --cam cam0` (or `--image file.png`) reports markers and corners
+  found. A sticker in the wrong square or turned is named; the acquire dialog shows it in red.
+  - **How it's found:** each marker is compared with a homography fitted to its neighbours within two squares, so
+    lens distortion does not matter, and a marker that misses by more than half its side is flagged.
+  - **What happens to it:** flagged markers and their corners are left out, and the rest of the board is still used.
+
+**Lens calibration** (Acquire → *Calibrate cameras…*):
+- **Auto-capture:** a view is captured when the corners have moved less than 0.8 px for 5 frames in a row, and the
+  board's position, size, tilt or roll differ enough from every captured view.
+  - Views with a misplaced sticker or fewer than 12 corners are never captured.
+  - *Capture now* (Space) takes the current view.
+- **The fit:** `cv2.calibrateCameraExtended` with the standard (k1 k2 p1 p2 k3) or rational distortion model. Views
+  with more than 3 × the median error (and over 1 px) are dropped once and the fit is repeated.
+- **PASS** needs all of:
+  - error ≤ 0.5 px RMS;
+  - ≥ 12 views;
+  - corners in ≥ 60 % of an 8 × 6 grid of image cells;
+  - ≥ 4 tilted views (one board edge ≥ 13 % longer than the opposite one).
+- **Result:** `config/calibration.yaml` → `cameras: <id>: lens:` holds:
+  - `K` (3 × 3) and `dist`;
+  - `rms_px`, the error of each view, `std_px` (the standard deviation of fx, fy, cx, cy);
+  - `image_size`, `model`, the camera's `serial`, `date`, and the board.
+
+  `config/calibration/<id>_lens.npz` keeps the corners of every view used, so the fit can be redone.
+- **Offline:** `mavric calibrate lens --cam cam0 --images <folder> [--model rational] [--save]` calibrates from saved
+  images. `mavric calibrate show` summarizes what is saved.
+- **Validity:** a calibration holds while the lens, focus, zoom and image size stay the same. The dialog warns when
+  the image size differs from the saved one.
+- **Simulation:** in `mavric acquire --sim` the synthetic camera shows a simulated board moved by hand through a known
+  lens. In 30 s it typically recovers the focal length within 0.3 % and the image centre within 2 px.
+
 ### FLIR / Point Grey cameras (Chameleon3)
 
 The `flir` backend (`mavric/video/flir.py`) drives FLIR / Point Grey USB3 cameras through **Spinnaker** (PySpin).
@@ -741,13 +789,16 @@ A file-by-file description is in [quickstart.md §6](quickstart.md#6-the-session
 
 ```
 firmware/        RFID sketch with the sync pulse (MultiRFID_Reader_ID20LA_sync), I/O sketch (MAVRIC_IO)
-config/          rig.yaml, tags.csv, rois.json, video.yaml, outputs.yaml, sound_types.yaml; examples/ is tracked
+config/          rig.yaml, tags.csv, rois.json, video.yaml, outputs.yaml, sound_types.yaml, calibration.yaml;
+                 examples/ is tracked
 mavric/rfid/      protocol (parse, EM4100 checksum, micros unwrap), serial thread, presence tracker
 mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthetic; IDS stub), recorder (raw
-                 lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest
+                 lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest,
+                 calibration (ChArUco board, detection, lens calibration, simulated board), sheet (sticker PDF)
 mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
                  sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
-mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling)
+mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling),
+                 calibration_dialog (Calibrate cameras)
 mavric/acquire.py acquisition controller (no GUI), event bus for presence changes
 mavric/triggers.py RFID-triggered clip rules (ring-buffer pre-roll, post-roll, max length)
 mavric/outputs/   event-driven outputs: rules engine, devices (I/O Arduino, Intan RHX, MATLAB, program, UDP/TCP,
@@ -762,8 +813,9 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 
 ## Not built yet
 
-- **Camera calibration and 3D:** calibrate the cameras with a ChArUco board, give each place a 3D position and
-  draw the ROIs in every camera; later, frame-triggered capture for 3D tracking and pose.
+- **Camera positions and 3D** (lens calibration is built): place all cameras in one frame from simultaneous board
+  views, give each place a 3D position and draw the ROIs in every camera, check for cameras that moved; later,
+  frame-triggered capture for 3D tracking and pose.
 - **Microphone and speaker positions:** placed like the ROIs, with distances to each place, for graded emitter
   suggestions and the stimulus level at each place.
 - **Automatic call classification,** trained on the labeled sound events.

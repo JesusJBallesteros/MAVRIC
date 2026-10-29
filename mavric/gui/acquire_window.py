@@ -98,6 +98,13 @@ class AcquireWindow(QtWidgets.QMainWindow):
         b_vs = QtWidgets.QPushButton("Video settings…")
         b_vs.clicked.connect(self._open_video_settings)
         f.addWidget(b_vs, 3, 3)
+        self.cal_label = QtWidgets.QLabel("")
+        f.addWidget(QtWidgets.QLabel("Calibration"), 4, 0)
+        f.addWidget(self.cal_label, 4, 1, 1, 2)
+        b_cal = QtWidgets.QPushButton("Calibrate cameras…")
+        b_cal.clicked.connect(self._open_calibration)
+        f.addWidget(b_cal, 4, 3)
+        self.update_calibration_label()
         acfg = self.ctl.audio_cfg
         self.b_audio = QtWidgets.QPushButton("Connect audio")
         self.b_audio.clicked.connect(self._toggle_audio)
@@ -357,6 +364,32 @@ class AcquireWindow(QtWidgets.QMainWindow):
         from .video_dialogs import VideoSettingsDialog
 
         VideoSettingsDialog(self).exec()
+
+    def _open_calibration(self) -> None:
+        if not self.ctl.cams:
+            message(self, "Calibrate cameras", "Connect a camera first.")
+            return
+        from .calibration_dialog import CalibrationDialog
+
+        CalibrationDialog(self).exec()
+
+    def update_calibration_label(self) -> None:
+        """Which cameras have a saved lens calibration."""
+        from ..video.calibration import load_calibrations
+
+        try:
+            cals = load_calibrations(resolve_path(self.rig["paths"].get("calibration_file", "config/calibration.yaml")))
+        except Exception as e:  # a hand-edited file that no longer parses
+            self.cal_label.setText(f"calibration.yaml unreadable: {e}")
+            return
+        parts = []
+        for c in self.rig["cameras"]:
+            cal = cals.get(c["id"])
+            parts.append(f"{c['id']} " + (f"✓ {cal.rms_px:.2f} px" if cal is not None and cal.verdict()[0] else
+                                           "✗" if cal is not None else "—"))
+        self.cal_label.setText("  ·  ".join(parts))
+        self.cal_label.setToolTip("Lens calibration per camera (✓ saved and passed, ✗ saved but failed, — none), "
+                                  "in config/calibration.yaml")
 
     def _refresh_views(self, select: str | None = None) -> None:
         cur = select or self._view_id
