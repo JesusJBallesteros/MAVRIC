@@ -11,6 +11,7 @@ recorder, if one is attached.
 
 from __future__ import annotations
 
+import itertools
 import queue
 import threading
 from collections import deque
@@ -53,53 +54,112 @@ class AudioRing:
             return self.buf[idx].copy(), self.count
 
 
-class Mixer:
-    """Plays sample arrays on output channels; rendered inside the audio callback."""
+class _Voice:
+    __slots__ = ("id", "buf", "channel", "gain", "name", "loop", "source", "pos", "played", "fade_left")
 
-    def __init__(self, n_out: int, max_level_dbfs: float = -6.0):
+    def __init__(self, vid, buf, channel, gain, name, loop, source):
+        self.id, self.buf, self.channel, self.gain = vid, buf, channel, gain
+        self.name, self.loop, self.source = name, loop, source
+        self.pos = 0  # next sample of buf
+        self.played = 0  # samples output so far
+        self.fade_left: int | None = None  # samples left of a fade-out (stop)
+
+
+class Mixer:
+    """Plays sample arrays on output channels; rendered inside the audio callback.
+
+    Each sound is a voice with an id, a gain and optionally a loop. stop() fades
+    voices out over `fade_s` (no click), by voice, by channel or all. Every start
+    and end is logged with its stream sample in `log` (read by AudioStream).
+    The mix is hard-limited at `max_level_dbfs`; `limited` counts the samples
+    that hit the limit, per channel.
+    """
+
+    def __init__(self, n_out: int, max_level_dbfs: float = -6.0, sample_rate: float = 48000, fade_s: float = 0.01):
         self.n_out = n_out
         self.max_amp = float(10 ** (max_level_dbfs / 20))
+        self.fade_n = max(1, int(fade_s * sample_rate))
         self._pending: deque = deque()
-        self._voices: list[list] = []  # [samples, channel, position, gain, name]
+        self._voices: list[_Voice] = []
         self._stop: deque = deque()
-        self.played: deque = deque(maxlen=10000)  # (stream sample at start, channel, name)
+        self._ids = itertools.count(1)
+        self.log: deque = deque(maxlen=10000)  # {"kind": start|end, "sample", "voice", "channel", "name", ...}
+        self.limited = np.zeros(max(n_out, 1), int)
 
-    def play(self, samples: np.ndarray, channel: int, gain: float = 1.0, name: str = "") -> None:
+    def play(self, samples: np.ndarray, channel: int, gain: float = 1.0, name: str = "", loop: bool = False,
+             source: str = "") -> int:
+        """Queue a sound; it starts at the next block. Returns the voice id."""
         if not 0 <= channel < self.n_out:
             raise ValueError(f"output channel {channel + 1} not open (have {self.n_out})")
-        self._pending.append([np.asarray(samples, np.float32).ravel(), channel, 0, float(gain), name])
+        vid = next(self._ids)
+        self._pending.append(_Voice(vid, np.asarray(samples, np.float32).ravel(), channel, float(gain), name,
+                                    bool(loop), source))
+        return vid
 
-    def stop(self, channel: int | None = None) -> None:
-        self._stop.append(channel)
+    def stop(self, channel: int | None = None, voice: int | None = None) -> None:
+        """Fade out one voice, every voice on a channel, or (both None) everything."""
+        self._stop.append((channel, voice))
 
     @property
     def busy(self) -> bool:
         return bool(self._voices or self._pending)
 
+    def active(self) -> list[dict]:
+        """The sounds playing now (for displays)."""
+        return [{"voice": v.id, "channel": v.channel, "name": v.name, "loop": v.loop, "source": v.source}
+                for v in list(self._voices)]
+
+    def _hit(self, v: _Voice, channel, voice) -> bool:
+        return (channel is None and voice is None) or v.channel == channel or v.id == voice
+
     def render(self, out: np.ndarray, k0: int) -> None:
         out.fill(0)
         while self._stop:
-            ch = self._stop.popleft()
-            if ch is None:
-                self._pending.clear()
-            self._voices = [v for v in self._voices if ch is not None and v[1] != ch]
+            channel, voice = self._stop.popleft()
+            for v in list(self._pending):  # not started yet: cancelled (list() copies under the GIL)
+                if self._hit(v, channel, voice):
+                    v.fade_left = 0
+            for v in self._voices:
+                if self._hit(v, channel, voice) and v.fade_left is None:
+                    v.fade_left = self.fade_n
         while self._pending:
             v = self._pending.popleft()
+            if v.fade_left == 0:
+                continue
             self._voices.append(v)
-            self.played.append((k0, v[1], v[4]))
+            self.log.append({"kind": "start", "sample": k0, "voice": v.id, "channel": v.channel, "name": v.name,
+                             "gain": v.gain, "loop": v.loop, "source": v.source})
         if not self._voices:
             return
         n = len(out)
         alive = []
         for v in self._voices:
-            buf, ch, pos, gain, _ = v
-            k = min(n, len(buf) - pos)
-            out[:k, ch] += buf[pos: pos + k] * gain
-            v[2] = pos + k
-            if v[2] < len(buf):
+            k = 0
+            while k < n and len(v.buf) and v.fade_left != 0:
+                if v.pos >= len(v.buf):
+                    if not v.loop:
+                        break
+                    v.pos = 0
+                m = min(n - k, len(v.buf) - v.pos)
+                seg = v.buf[v.pos: v.pos + m] * v.gain
+                if v.fade_left is not None:
+                    m = min(m, v.fade_left)
+                    seg = seg[:m] * ((v.fade_left - np.arange(m)) / self.fade_n)
+                    v.fade_left -= m
+                out[k: k + m, v.channel] += seg
+                v.pos += m
+                v.played += m
+                k += m
+            if v.fade_left == 0 or not len(v.buf) or (not v.loop and v.pos >= len(v.buf)):
+                self.log.append({"kind": "end", "sample": k0 + k, "voice": v.id, "channel": v.channel,
+                                 "name": v.name, "n": v.played, "stopped": v.fade_left is not None})
+            else:
                 alive.append(v)
         self._voices = alive
-        np.clip(out, -self.max_amp, self.max_amp, out=out)
+        over = np.abs(out) > self.max_amp
+        if over.any():
+            self.limited[: out.shape[1]] += over.sum(axis=0)
+            np.clip(out, -self.max_amp, self.max_amp, out=out)
 
 
 class SoundDeviceBackend:
@@ -139,6 +199,11 @@ class SoundDeviceBackend:
         return {"device": d.get("name"), "host_api": d.get("host_api"), "latency_s": lat,
                 "sample_rate": float(self.stream.samplerate) if self.stream is not None else None}
 
+    def round_trip_samples(self) -> int:
+        """Output -> input delay of the duplex stream (PortAudio's input + output latency), in samples."""
+        lat = self.info()["latency_s"]
+        return int(round(sum(x or 0.0 for x in lat) * self.cfg.sample_rate)) if self.cfg.n_out_open else 0
+
     def close(self) -> None:
         if self.stream is not None:
             try:
@@ -172,7 +237,9 @@ class AudioStream:
         self.backend = backend
         n_ch = len(cfg.names)
         self.ring = AudioRing(n_ch, int(ring_s * cfg.sample_rate))
-        self.mixer = Mixer(cfg.n_out_open, cfg.max_level_dbfs)
+        self.mixer = Mixer(cfg.n_out_open, cfg.max_level_dbfs, cfg.sample_rate)
+        self.play_offset = 0  # samples from rendering a sound to it being at the speaker (set at open)
+        self.played: deque = deque(maxlen=200)  # recent playback log entries (start / end), for displays
         self.edges = EdgeDetector(cfg.sample_rate) if cfg.sync_index is not None else None
         self.n_samples = 0  # stream samples so far (input and output advance together)
         self.n_blocks = 0
@@ -198,6 +265,8 @@ class AudioStream:
         except Exception:
             self._q.put(None)
             raise
+        rt = getattr(self.backend, "round_trip_samples", None)
+        self.play_offset = int(rt()) if rt is not None else 0
 
     def close(self) -> None:
         try:
@@ -222,8 +291,25 @@ class AudioStream:
             return sink
 
     # ------------------------------------------------------------------ playback
-    def play(self, samples: np.ndarray, speaker: str | int, gain_db: float = 0.0, name: str = "") -> None:
-        self.mixer.play(samples, self.cfg.speaker_index(speaker), 10 ** (gain_db / 20), name)
+    def play(self, samples: np.ndarray, speaker: str | int, gain_db: float = 0.0, name: str = "", loop: bool = False,
+             source: str = "") -> int:
+        """Play on a speaker (name or 1-based output); returns the voice id."""
+        return self.mixer.play(samples, self.cfg.speaker_index(speaker), 10 ** (gain_db / 20), name, loop, source)
+
+    def stop(self, speaker: str | int | None = None, voice: int | None = None) -> None:
+        """Fade out a voice, a speaker, or (no arguments) everything."""
+        self.mixer.stop(None if speaker is None else self.cfg.speaker_index(speaker), voice)
+
+    def _drain_playback(self, sink) -> None:
+        """Mixer log -> speaker names, the sample at the speaker; to the recorder and the recent list."""
+        log = self.mixer.log
+        while log:
+            e = log.popleft()
+            e["speaker"] = self.cfg.speakers.get(e["channel"] + 1, str(e["channel"] + 1))
+            e["at_speaker"] = e["sample"] + self.play_offset
+            self.played.append(e)
+            if sink is not None and hasattr(sink, "playback"):
+                sink.playback(e, self.play_offset)
 
     # ------------------------------------------------------------------ data path
     def _callback(self, indata, outdata, frames, host_abs, adc_t, flags) -> None:
@@ -263,6 +349,7 @@ class AudioStream:
                     sink = self._sink
                 if sink is not None:
                     sink.submit(k0, x, host_abs, adc_t, flags, edges)
+                self._drain_playback(sink)
             except Exception as e:  # keep the stream alive; report once
                 if self.error is None:
                     self.error = f"{type(e).__name__}: {e}"
@@ -288,7 +375,8 @@ class AudioStream:
         return {"samples": self.n_samples, "seconds": self.n_samples / self.cfg.sample_rate,
                 "queue": self._q.qsize(), "flags": dict(self.flag_counts), "sync_edges": self.n_edges,
                 "last_sync_age_s": (now() - self.last_edge_abs) if self.last_edge_abs else None,
-                "clipped": self.clipped.tolist(), "error": self.error}
+                "clipped": self.clipped.tolist(), "error": self.error,
+                "playing": self.mixer.active(), "limited": self.mixer.limited.tolist()}
 
 
 class MemorySink:

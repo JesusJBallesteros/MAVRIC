@@ -16,7 +16,7 @@ The output is trustworthy **ID × location × time** records.
 | Stage | What it does | Command |
 |---|---|---|
 | Acquire | Live camera, perch ROIs tied to antennas, live RFID overlay, synchronized recording | `mavric acquire` |
-| Label / curate | Blind ground-truth labeling of perch occupancy; RFID curation; disagreement navigation | `mavric review <session>` |
+| Label / curate | Blind ground-truth labeling of perch occupancy; RFID curation; disagreement navigation; sound events (also for sessions without video) | `mavric review <session>` |
 | Analyze | Clock sync + LED validation, RFID bouts, accuracy vs labels, time budgets, plots | `mavric analyze <session>` |
 | Render | Annotated video (ROIs, RFID ID, label, disagreements) | `mavric render <session>` |
 | BORIS stopgap | Use BORIS labels as ground truth | `mavric import-boris <session> <export.tsv>` |
@@ -28,8 +28,8 @@ The output is trustworthy **ID × location × time** records.
 - [Project brief](project_brief.md): aims, needs and decisions, with post-hoc edits.
 - [Implementation plan](implementation_plan.md): research findings and the technical plan.
 - [Event-driven outputs](outputs_plan.md): feasibility, plan and status.
-- [Audio](audio_plan.md): two-microphone recording and sync, sound-event labeling (built); speaker playback
-  and analysis (planned).
+- [Audio](audio_plan.md): two-microphone recording and sync, sound-event labeling and speaker playback (built);
+  analysis (planned).
 - [Wiring and pin-map](wiring.md): readers, Arduino MEGA, sync LED and camera GPIO, with a
   [diagram](wiring_diagram.svg).
 
@@ -425,8 +425,8 @@ the session timeline (camera clock fit) and links it to the RFID bout that trigg
 
 ### Event-driven outputs (optional)
 
-**What it does:** RFID events can drive other devices: TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs and
-network messages. Background, feasibility and latency figures are in [docs/outputs_plan.md](outputs_plan.md);
+**What it does:** RFID events can drive other devices: TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs,
+network messages and sounds on the speakers. Background, feasibility and latency figures are in [docs/outputs_plan.md](outputs_plan.md);
 wiring is in [docs/wiring.md §6](wiring.md).
 
 **Setup**
@@ -450,10 +450,12 @@ wiring is in [docs/wiring.md §6](wiring.md).
 | **MATLAB** (Engine API) | `eval` (code) · `call` (function + args) · `run` (script) | `pip install "<matlabroot>\extern\engines\python"` in the mavric env, then in MATLAB `matlab.engine.shareEngine('mavric')` |
 | **Program / script** | `run` with arguments | started once per action, without waiting for it to finish |
 | **UDP / TCP message** | `send` · `hold` (start/stop texts) | e.g. to a MATLAB `udpport` listener, Bonsai, another PC |
+| **Audio speakers** | `play` (sound, speakers, gain dB, loop) · `stop` (speakers or all) · `hold_play` (loop while present, fade out after) | Connect audio first; sounds come from the library (below) |
 | **Simulated** | `mark` | logs only |
 
 **Placeholders.** Texts and arguments accept `{event} {rule} {antenna} {roi} {pigeon} {tag} {t} {utc} {session}`.
-`{t}` is the session time in seconds, so `{t:.3f}` gives milliseconds.
+`{t}` is the session time in seconds, so `{t:.3f}` gives milliseconds. A sound name accepts them too:
+`{subject}_call` plays a different file for each subject.
 
 **Logging.** Every decision is written to the session's `actions.csv`:
 - `ok`, `error`, `dry` (not armed) or `suppressed` (refractory, rate limit)
@@ -483,9 +485,8 @@ pin before acknowledging.
 - **Shows** live level meters and scrolling spectrograms of both microphones.
 - **Places** every audio sample on the session timeline, within microseconds of the RFID events, using the recorded
   sync pulse.
-- **Speakers:** the four speakers on Out 1–4 are opened in the same stream.
-  - Today they play the test tones.
-  - Stimulus playback from rules comes with AU4.
+- **Plays** stimuli on the four speakers (Out 1–4), opened in the same stream: by hand from the soundboard, or from
+  output rules. Each played sound is logged at the recording sample where it reached the speaker output.
 
 The plan and status are in [docs/audio_plan.md](audio_plan.md); wiring is in [docs/wiring.md §7](wiring.md).
 
@@ -511,7 +512,69 @@ It also writes `analysis/audio_time_knots.csv` (sample → session time).
 
 **Without the sync cable**, audio is aligned by the host clock alone (a few ms).
 
+#### Playing sounds (stimuli)
+
+**The library.** Put the stimuli in `sounds/` (or the folder in `rig.yaml → audio.sounds_dir`).
+- **Formats:** WAV, FLAC or OGG, ideally 48 kHz mono. Stereo files are mixed to mono, and other rates are resampled
+  once when the library loads.
+- **Names:** a sound is named by its path in the folder, without the extension (`calls/coo_A.wav` → `calls/coo_A`).
+- **Built in:** `test_tone` (1 kHz, 200 ms, −20 dBFS), for checking a speaker or headphones without files.
+- **In memory:** the whole library is loaded once, so starting a sound reads no file. It starts with the next audio
+  block: about one block (21 ms) plus the device's output latency after the request.
+
+```bash
+mavric audio sounds                                   # list the library: length, peak level, file rate
+mavric audio play test_tone --speaker spk1 --gain-db -10
+```
+
+**Levels.** `gain_db` scales the file as recorded (0 dB = unchanged). The mix is clipped at
+`audio.max_level_dbfs` (−6 dBFS by default) as a safety limit.
+- **Before it clips:** the soundboard, the rule log and `mavric audio play` say *LIMITED* when a sound's peak plus its
+  gain is above the limit.
+- **While playing:** the audio panel warns when the limiter was hit.
+- **Speaker calibration:** whether each speaker needs a calibrated level at the birds' position (SPL meter) is still
+  open. Until then, keep the gain per rule and note the M4's volume knob position (it sets Out 1–2).
+
+**Soundboard** (acquire window, under the audio meters, once audio is connected):
+- choose a sound, a speaker (or all), a gain and optionally *loop*; then press **▶ Play sound**
+- **■ Stop all sounds** fades out everything; disarming the outputs does too
+- **↻ sounds** reloads the library after adding files
+- each play is logged in `actions.csv` (event `manual`) and `audio_playback.csv`
+
+**From rules.** Add a device of type *Audio speakers* in **Outputs…** and give rules a `play`, `stop` or `hold_play`
+action. The sound and speaker fields list the library and `rig.yaml` speakers. Example: "S03 lands on PerchB → play
+`call_A` on spk2 once, refractory 30 s".
+
+**The log: `audio_playback.csv`.** One row per played sound, written when it ends:
+
+| Column | Meaning |
+|---|---|
+| `sample` | recording sample at which the sound reached the speaker output |
+| `n_samples` | samples actually played (a stopped or looped sound has its true length) |
+| `speaker`, `sound`, `gain_db`, `loop` | what was played, where and how |
+| `stopped` | 1 if it was cut short (stop, disarm, end of the recording) |
+| `source` | `soundboard`, `rule:<name>`, `cli` |
+| `latency_samples` | the driver's output → input round trip that `sample` includes |
+
+`sample` is the rendered sample plus the round trip that the driver reports. `mavric audio test --tones` measures the
+real delay to each microphone, and prints the part left for the air (about 2.9 ms per metre). The review shows every
+played sound as an event with emitter `system:<speaker>`. `session.json → audio.sounds` records each sound's file,
+length and SHA-1, so the exact stimulus is known later.
+
 ### 2. Label: `mavric review <session>`
+**Start dialog.** Enter your initials and choose what to review:
+- **Video:** place labels and RFID curation (below).
+- **Audio:** sound events.
+
+Options the session lacks are greyed out. `--annotator <initials>` skips the dialog, and `--only video|audio` limits
+the review to one.
+
+**Without video** (an audio test, a session recorded without cameras, or Video unchecked):
+- **Playhead:** it runs on its own clock over the session; ←/→ step 10 ms.
+- **Timeline:** shows the RFID bouts per place as context.
+- **Off:** place labels, curation and their reviewed coverage. Files from an earlier video review stay as they are.
+- **Saving:** only the sound events.
+
 **Blind mode (the default).** RFID is hidden, so the labels stay independent of it.
 
 | Key | Action |
@@ -557,14 +620,14 @@ Choose *Analyze* for the report, and *Render* for the annotated video.
 | Shift+Del | Delete the selected event; drag its edges to adjust it |
 
 **More**
-- **Listening with the video:** tick *Play audio with the video*. Slower speeds lower the pitch, which helps with
-  fast or high calls.
+- **Listening during playback:** tick *Play audio during playback* (on by default without video). Slower speeds
+  lower the pitch, which helps with fast or high calls.
 - **Emitter suggestions** combine:
   - which microphone the sound was louder on (and reached first, for broadband sounds)
   - which birds RFID places on a perch at that moment
   - `audio.mic_near` in `rig.yaml`: which perches each microphone is next to.
-- **Played sounds:** sounds the rig played (`audio_playback.csv`, written by playback) appear automatically with
-  emitter *system:<speaker>*.
+- **Played sounds:** sounds the rig played (`audio_playback.csv`, from the soundboard and rules) appear automatically
+  with type *playback*, emitter *system:<speaker>* and the sound's name as the note.
 
 **Files**
 - **Events:** `sound_events.csv`.
@@ -647,6 +710,7 @@ sessions/<YYYYmmdd_HHMMSS>_<name>/
   audio_000.flac      audio inputs (micA, micB, sync), 48 kHz / 24 bit, one file per hour
   audio_clock.csv     sample, n, host_t, adc_t, flags (block deliveries, for the audio clock fit)
   audio_edges.csv     sample, sign, amp (sync pulse edges, in samples)
+  audio_playback.csv  sounds played on the speakers: sample, n_samples, speaker, sound, gain_db, loop, stopped, source
   clips/              RFID-triggered clips: <camera>_<rule>_<nnn>.mp4 + _frames.csv
   analysis/
 ```

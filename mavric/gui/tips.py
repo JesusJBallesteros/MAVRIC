@@ -34,6 +34,12 @@ ACQUIRE = {
     "Outputs…": "Devices (I/O Arduino, Intan, MATLAB, programs, network), RFID rules, and camera clip rules",
     "Arm outputs": "Outputs fire only while armed; disarming releases every held output",
     "Audio inputs": "Peak level per input (dBFS) with a falling peak hold; CLIP marks overload",
+    # soundboard
+    "Soundboard": "Play stimuli by hand on any speaker; logged like rule actions (actions.csv, audio_playback.csv)",
+    "↻ sounds": "Reload the sound library (audio.sounds_dir, default sounds/) after adding or changing files",
+    "loop": "Repeat the sound until Stop all sounds (or disarming)",
+    "▶ Play sound": "Play the chosen sound on the chosen speaker(s) now",
+    "■ Stop all sounds": "Fade out every sound, from the soundboard and from rules (disarming does this too)",
 }
 
 ACQUIRE_ATTR = {
@@ -47,6 +53,10 @@ ACQUIRE_ATTR = {
     "video": "Live image; place ROIs take the subject's colour while their antenna reads its tag",
     "led_label": "Mean brightness inside the sync LED box: it must jump with each flash",
     "stat_label": "Stream status: RFID line rate, camera frame rates, recording, clips, audio",
+    "sb_sound": "Sound from the library: WAV/FLAC files in sounds/ (mono, resampled to the audio rate); "
+                "test_tone is built in",
+    "sb_speaker": "Speaker(s) to play on (rig.yaml audio.speakers)",
+    "sb_gain": "Gain applied to the file (0 dB = as recorded). The limiter clips above audio.max_level_dbfs.",
 }
 
 REVIEW = {
@@ -63,6 +73,13 @@ REVIEW = {
     "Render annotated video": "Video with ROIs, labels and RFID drawn in (analysis/annotated_<cam>.mp4)",
     "Reset reviewed spans": "Forget which time counts as reviewed (the grey band)",
     "Compress videos…": "Make <name>_compressed.mp4 copies (H.264) of the raw video, e.g. for DeepLabCut",
+    # start dialog
+    "Your initials": "Stored with every label and sound event you make",
+    "Review": "What to review; parts this session does not have are greyed out",
+    "Video: place labels and RFID curation": "Video with the places: blind labeling of who is on each place, RFID "
+                                             "curation, annotated video",
+    "Audio: sound events": "Waveform and spectrogram lanes, listening and sound event labels. Without video the "
+                           "playhead runs on its own clock and RFID is shown as context.",
 }
 
 REVIEW_ATTR = {
@@ -84,7 +101,8 @@ SOUND = {
     "Detect proposals": "Find candidate sound events automatically (band energy above the noise floor)",
     "Accept (Y)": "Turn the proposal at or after the playhead into an event",
     "Reject (R)": "Drop the proposal and go to the next one",
-    "Play audio with the video": "Play the selected microphone(s) while the video plays; pitch follows the speed",
+    "Play audio during playback": "Play the selected microphone(s) while the playhead runs (Space); pitch follows "
+                                  "the speed. On by default without video.",
     "Listen (L)": "Play around the playhead, or the selected event",
     "Import…": "Read an Audacity label track or Raven selection table",
     "Export…": "Write the events as Audacity labels or a Raven selection table (analysis/)",
@@ -144,6 +162,13 @@ OUTPUTS = {
     "Arguments": "Arguments; placeholders like {subject} {roi} {t} are filled in",
     "Script (.m file)": "MATLAB script to run",
     "Note": "Text written to the action log; placeholders like {subject} {roi} are filled in",
+    "Sound (name in sounds/, e.g. coo_A; {subject} etc. allowed)": "Library sound (file name without extension); "
+                                                                   "{subject}_call picks one per subject",
+    "Speaker(s): names or outputs, comma-separated, or all": "Speakers from rig.yaml audio.speakers, e.g. spk2 or "
+                                                             "spk1, spk3; all = every speaker",
+    "Gain (dB, 0 = as in the file)": "Level change applied to the file; the limiter clips above "
+                                     "audio.max_level_dbfs",
+    "Loop until a stop action": "Repeat until a stop action, Stop all sounds or disarming",
 }
 
 VIDEO = {

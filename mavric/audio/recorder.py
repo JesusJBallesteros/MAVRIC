@@ -3,10 +3,16 @@
     audio_000.flac ...   all configured inputs, one file per `split_s` (no gaps between files)
     audio_clock.csv      host time of block deliveries (for the audio clock fit)
     audio_edges.csv      sync pulse edges, in samples from the start of the recording
+    audio_playback.csv   sounds played on the speakers (only when something was played)
 
 The clock sidecar keeps, per `clock_every_s`, the block delivered with the
 least delay (the lower envelope is what the clock fit uses), plus every block
 that came with a driver warning such as an input overflow.
+
+Playback rows give the recording sample at which the sound reached the
+speaker output: the rendered sample plus the driver's round trip
+(`latency_samples`). One row per sound, written when it ends, with the
+samples actually played (a stopped or looped sound has its true length).
 """
 
 from __future__ import annotations
@@ -23,7 +29,10 @@ from .edges import EDGE_COLUMNS
 
 CLOCK_FILE = "audio_clock.csv"
 EDGES_FILE = "audio_edges.csv"
+PLAYBACK_FILE = "audio_playback.csv"
 CLOCK_COLUMNS = ["sample", "n", "host_t", "adc_t", "flags"]
+PLAYBACK_COLUMNS = ["sample", "n_samples", "speaker", "sound", "gain_db", "loop", "stopped", "source",
+                    "latency_samples"]
 FORMATS = {"FLAC": ("FLAC", ".flac"), "WAV": ("RF64", ".wav")}  # RF64: WAV without the 4 GB limit
 
 
@@ -51,6 +60,9 @@ class AudioRecorder:
         self._since_flush = 0
         self._clock = CsvAppender(self.folder / CLOCK_FILE, CLOCK_COLUMNS)
         self._edges = CsvAppender(self.folder / EDGES_FILE, EDGE_COLUMNS)
+        self._play: CsvAppender | None = None  # opened with the first played sound
+        self._voices: dict[int, dict] = {}  # started, not ended yet
+        self.n_played = 0
         self._th = threading.Thread(target=self._run, daemon=True, name="audio-writer")
 
     def start(self) -> None:
@@ -59,6 +71,10 @@ class AudioRecorder:
     def submit(self, k0, x, host_abs, adc_t, flags, edges) -> None:
         self.q.put((k0, x, host_abs, adc_t, flags, edges))
 
+    def playback(self, entry: dict, offset: int) -> None:
+        """A mixer log entry (start or end of a sound), in stream samples; `offset`: render -> speaker."""
+        self.q.put(("play", entry, offset))
+
     # ------------------------------------------------------------------ writer thread
     def _run(self) -> None:
         while True:
@@ -66,10 +82,30 @@ class AudioRecorder:
             if item is None:
                 break
             try:
-                self._write(*item)
+                if item[0] == "play":
+                    self._playback(item[1], item[2])
+                else:
+                    self._write(*item)
             except Exception as e:
                 if self.error is None:
                     self.error = f"{type(e).__name__}: {e}"
+
+    def _playback(self, e: dict, offset: int) -> None:
+        if e["kind"] == "start":
+            if self.base is not None and e["sample"] >= self.base:  # sounds started before the recording are left out
+                self._voices[e["voice"]] = {**e, "offset": offset}
+            return
+        s = self._voices.pop(e["voice"], None)
+        if s is not None:
+            self._write_play(s, e["n"], e.get("stopped", False))
+
+    def _write_play(self, s: dict, n: int, stopped: bool) -> None:
+        if self._play is None:
+            self._play = CsvAppender(self.folder / PLAYBACK_FILE, PLAYBACK_COLUMNS)
+        gain_db = 20 * np.log10(max(s["gain"], 1e-10))
+        self._play.write([s["sample"] + s["offset"] - self.base, int(n), s["speaker"], s["name"], f"{gain_db:.2f}",
+                          int(s["loop"]), int(stopped), s["source"], s["offset"]])
+        self.n_played += 1
 
     def _open_file(self) -> None:
         import soundfile as sf
@@ -143,14 +179,19 @@ class AudioRecorder:
         if self._sf is not None:
             self._sf.close()
             self._sf = None
+        for s in list(self._voices.values()):  # still playing when the recording stopped: up to its end
+            self._write_play(s, max(0, self.base + self.n - s["sample"]), True)
+        self._voices.clear()
         self._clock.close()
         self._edges.close()
+        if self._play is not None:
+            self._play.close()
         return self.stats()
 
     def stats(self) -> dict:
         return {"samples": self.n, "duration_s": self.n / self.sr, "files": len(self.files),
                 "sync_edges": self.n_edges, "flags": dict(self.flag_counts), "queue": self.q.qsize(),
-                "error": self.error}
+                "played": self.n_played, "error": self.error}
 
     def info(self) -> dict:
         """Session metadata (session.json "audio")."""

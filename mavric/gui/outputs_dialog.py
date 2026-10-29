@@ -1,6 +1,7 @@
 """Outputs menu: output devices and the rules that drive them from RFID events.
 
-Devices tab  add / edit / remove / test devices (I/O Arduino, Intan RHX, UDP, TCP, MATLAB, program, sim)
+Devices tab  add / edit / remove / test devices (I/O Arduino, Intan RHX, UDP, TCP, MATLAB, program, audio
+             speakers, sim)
 Rules tab    which antennas and subjects, which event (enter / leave / while present), which device action
 Save         writes config/outputs.yaml and restarts the output engine (disarmed)
 """
@@ -33,13 +34,18 @@ TEMPLATE_HELP = ("Text fields accept placeholders: " + ", ".join("{" + f + "}" f
 class ParamForm(QtWidgets.QWidget):
     """Widgets for a (key, label, default, kind) schema."""
 
-    def __init__(self, schema: list, values: dict | None = None, port_choices: list[str] | None = None, parent=None):
+    def __init__(self, schema: list, values: dict | None = None, port_choices: list[str] | None = None, parent=None,
+                 choices: dict[str, list[str]] | None = None):
+        """choices: key -> suggestions, shown as an editable list (e.g. library sounds, speakers)."""
         super().__init__(parent)
         self.schema = schema
         self.widgets: dict[str, QtWidgets.QWidget] = {}
         form = QtWidgets.QFormLayout(self)
         form.setContentsMargins(0, 0, 0, 0)
         values = values or {}
+        choices = dict(choices or {})
+        if port_choices is not None:
+            choices["port"] = port_choices
         for key, label, default, kind in schema:
             v = values.get(key, default)
             if kind == "bool":
@@ -54,11 +60,12 @@ class ParamForm(QtWidgets.QWidget):
                 w.setRange(-1e6, 1e6)
                 w.setDecimals(3)
                 w.setValue(float(v))
-            elif key == "port" and port_choices is not None:
+            elif key in choices:
                 w = QtWidgets.QComboBox()
                 w.setEditable(True)
-                w.addItems(port_choices)
+                w.addItems(choices[key])
                 w.setCurrentText(str(v))
+                w.setMinimumWidth(320)
             else:
                 w = QtWidgets.QLineEdit(str(v))
                 w.setMinimumWidth(320)
@@ -133,6 +140,8 @@ class DeviceEditor(QtWidgets.QDialog):
             "command": "The program starts once per action, without waiting for it to finish.",
             "udp": "Fire-and-forget datagrams (e.g. to a MATLAB udpport listener).",
             "tcp": "Connects at start; reconnects if the peer restarts.",
+            "audio": "Plays sounds from the library (audio.sounds_dir, default sounds/) on the speakers of "
+                     "rig.yaml audio.speakers. Connect audio in the acquire window first; Test plays test_tone.",
             "sim": "Logs actions without driving anything.",
         }.get(dtype, ""))
 
@@ -149,10 +158,12 @@ class DeviceEditor(QtWidgets.QDialog):
 
 class RuleEditor(QtWidgets.QDialog):
     def __init__(self, parent, rule: Rule | None, devices: dict[str, dict], antennas: dict[int, str],
-                 tags: TagMap, taken: set[str] = frozenset()):
+                 tags: TagMap, taken: set[str] = frozenset(), choices: dict[str, list[str]] | None = None):
+        """choices: suggestions for action parameters (sound names, speakers)."""
         super().__init__(parent)
         self.setWindowTitle("Output rule")
         self.devices, self.taken = devices, taken
+        self.choices = choices or {}
         rule = rule or Rule(name="rule1", device=next(iter(devices)), action="")
         lay = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
@@ -274,7 +285,7 @@ class RuleEditor(QtWidgets.QDialog):
             self.pform.setParent(None)
         dtype, act = self._dtype(), self.action.currentData()
         vals = {**action_defaults(dtype, act), **(self._init_params if act == self._init_action else {})}
-        self.pform = ParamForm(ACTIONS[dtype][act], vals)
+        self.pform = ParamForm(ACTIONS[dtype][act], vals, choices=self.choices)
         apply_tips(self.pform, OUTPUTS)
         self.pbox_lay.addWidget(self.pform)
         self.pbox.setVisible(bool(ACTIONS[dtype][act]))
@@ -589,12 +600,21 @@ class OutputsDialog(QtWidgets.QDialog):
         self._run(lambda: eng.test_device(n), f"Test {n}")
 
     # ------------------------------------------------------------------ rules
+    def _param_choices(self) -> dict[str, list[str]]:
+        """Library sounds and speakers, for the audio actions' pickers."""
+        from ..audio.library import list_sound_names
+        from ..config import resolve_path
+
+        acfg = self.ctl.audio_cfg
+        speakers = [acfg.speakers[c] for c in sorted(acfg.speakers)]
+        return {"sound": list_sound_names(resolve_path(acfg.sounds_dir)), "speakers": ["all"] + speakers}
+
     def add_rule(self) -> None:
         if not self.cfg.devices:
             message(self, "No devices", "Add a device first.", error=True)
             return
         dlg = RuleEditor(self, None, self.cfg.devices, self.ctl.rig["antennas"], self.ctl.tags,
-                         taken={r.name for r in self.cfg.rules})
+                         taken={r.name for r in self.cfg.rules}, choices=self._param_choices())
         dlg.name.setText(f"rule{len(self.cfg.rules) + 1}")
         if dlg.exec():
             self.cfg.rules.append(dlg.result_rule())
@@ -606,7 +626,7 @@ class OutputsDialog(QtWidgets.QDialog):
             return
         r = self.cfg.rules[i]
         dlg = RuleEditor(self, r, self.cfg.devices, self.ctl.rig["antennas"], self.ctl.tags,
-                         taken={x.name for x in self.cfg.rules} - {r.name})
+                         taken={x.name for x in self.cfg.rules} - {r.name}, choices=self._param_choices())
         if dlg.exec():
             self.cfg.rules[i] = dlg.result_rule()
             self.refresh()

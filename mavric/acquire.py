@@ -144,6 +144,7 @@ class AcquisitionController:
         self.triggers: TriggerManager | None = None
         self.outputs: ActionEngine | None = None  # event-driven outputs (start_outputs)
         self.audio = None  # AudioStream (connect_audio)
+        self.player = None  # audio Player on the speakers (connect_audio, when speakers are configured)
         self._audio_rec = None
         self.world = None  # SimWorld in simulation mode
         try:
@@ -218,14 +219,44 @@ class AcquisitionController:
         st = AudioStream(cfg, self.bus, world=self.world)
         st.open()
         self.audio = st
+        if cfg.speakers:
+            from .audio.library import SoundLibrary
+            from .audio.player import Player
+
+            self.player = Player(st, SoundLibrary(resolve_path(cfg.sounds_dir), cfg.sample_rate))
         return st
 
     def disconnect_audio(self) -> None:
         if self.audio is not None:
             if self._audio_rec is not None:
                 raise RuntimeError("Stop the recording before disconnecting audio")
+            self.player = None
             self.audio.close()
             self.audio = None
+
+    def play_sound(self, sound: str, speakers="all", gain_db: float = 0.0, loop: bool = False) -> str:
+        """Soundboard: play by hand. Logged in actions.csv (event "manual") and audio_playback.csv."""
+        if self.player is None:
+            raise RuntimeError("Connect audio first (with speakers in rig.yaml audio.speakers)")
+        try:
+            _ids, text = self.player.play(sound, speakers, gain_db, loop, source="soundboard")
+            status = "ok"
+        except (KeyError, ValueError, RuntimeError) as e:
+            text, status = str(e.args[0] if e.args else e), "error"
+        if self.outputs is not None:
+            self.outputs.log_manual("soundboard", "play", {"sound": sound, "speakers": speakers,
+                                                           "gain_db": gain_db, "loop": loop}, text, status)
+        if status == "error":
+            raise RuntimeError(text)
+        return text
+
+    def stop_sounds(self) -> None:
+        """Fade out every sound (soundboard and rules)."""
+        if self.player is not None:
+            busy = self.player.stream.mixer.busy
+            self.player.stop_all()
+            if busy and self.outputs is not None:
+                self.outputs.log_manual("soundboard", "stop", {}, "stopped all sounds")
 
     # ------------------------------------------------------------------ outputs
     @property
@@ -240,7 +271,8 @@ class AcquisitionController:
         self.stop_outputs()
         cfg = cfg or self.load_outputs_config()
         self.set_clip_rules(cfg)
-        self.outputs = ActionEngine(cfg, self.tags, self.rig["antennas"], self.bus)
+        self.outputs = ActionEngine(cfg, self.tags, self.rig["antennas"], self.bus,
+                                    resources={"player": lambda: self.player})
         errors = self.outputs.start()
         if self.session is not None:
             self.outputs.attach_session(self.session, self._rec_t0)
@@ -302,6 +334,10 @@ class AcquisitionController:
             arec = AudioRecorder(sess.path, self.audio.cfg, t0, stream_info=self.audio.info())
             arec.start()
             sess.add_audio(arec.info())
+            if self.player is not None:  # what each playable sound is (name, file, sha1)
+                lib = self.player.library
+                sess.update_audio({"sounds_dir": str(lib.folder), "sounds": lib.manifest(),
+                                   "playback_latency_samples": self.audio.play_offset})
             self.audio.attach(arec)
             self._audio_rec = arec
         warnings = []
@@ -356,6 +392,8 @@ class AcquisitionController:
             self.audio.detach()
             stats["audio"] = self._audio_rec.finish()
             sess.update_audio({"files": self._audio_rec.files, "stats": stats["audio"]})
+            if self.player is not None:  # the library may have been reloaded during the session
+                sess.update_audio({"sounds": self.player.library.manifest()})
             self._audio_rec = None
         if self.rfid is not None:
             stats["rfid_lines"] = self.rfid.detach_writer()

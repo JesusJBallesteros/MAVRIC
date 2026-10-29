@@ -11,6 +11,11 @@ Sessions with audio get waveform and spectrogram lanes under the timeline and
 a Sound events panel (mavric/gui/sound_panel.py): listening, start/end marking,
 event types, emitter suggestions from the two microphones and RFID, automatic
 proposals, Audacity/Raven exchange.
+
+The start dialog asks for the annotator's initials and what to review: video
+(place labels, RFID curation) and/or audio (sound events). Without video the
+playhead runs on its own clock (CLOCK_HZ steps per second) over the session,
+place labels are off, and RFID is shown as context.
 """
 
 from __future__ import annotations
@@ -40,10 +45,23 @@ from ..session import CURATION_FILE, Session
 from .common import GRAY, RED, VideoView, Worker, message, qcolor
 
 SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
+CLOCK_HZ = 100.0  # playhead steps per second when there is no video (←/→ = 10 ms)
+
+
+def session_end(sess: Session, P) -> float:
+    """Last moment with RFID or audio data (session time), for a review without video."""
+    ends = [float(sess.meta.get("duration_s") or 0.0)]
+    rt = np.asarray(P.sync.get("rfid_t", []), float)
+    if rt.size and np.isfinite(rt).any():
+        ends.append(float(np.nanmax(rt)))
+    if P.audio is not None:
+        ends += [float(kt[-1]) for *_, kt in P.audio.segments if len(kt)]
+    return max(ends) or 1.0
 
 
 class ReviewWindow(QtWidgets.QMainWindow):
-    def __init__(self, session: Session, annotator: str = ""):
+    def __init__(self, session: Session, annotator: str = "", video: bool = True, audio: bool = True):
+        """video / audio: what to review; each is used only if the session has it."""
         super().__init__()
         self.sess = session
         self.annotator = annotator
@@ -55,11 +73,20 @@ class ReviewWindow(QtWidgets.QMainWindow):
         self.pigeons = self.tags.pigeons
         self.roi_objs = session.rois.perches
         self.rois = [r.name for r in self.roi_objs] or list(session.antennas.values())
-        self.src = open_session_video(session)  # raw chunks or a single video
-        fps = float(session.camera().get("fps", 30))
+        self.video_on = bool(video and session.cameras)
+        self.audio_on = bool(audio and session.audio and self.P.audio is not None)
+        self.labeling = self.video_on  # place labels and curation need the video to judge by
+        if self.video_on:
+            self.src = open_session_video(session)  # raw chunks or a single video
+            fps = float(session.camera().get("fps", 30))
+            ft = self.P.frame_t if self.P.frame_t is not None else np.arange(self.src.n) / fps
+            ft = ft[: self.src.n] if len(ft) >= self.src.n else ft
+        else:
+            self.src = None
+            fps = CLOCK_HZ
+            ft = np.arange(0.0, session_end(session, self.P), 1 / fps)
         self.fps = fps
-        ft = self.P.frame_t if self.P.frame_t is not None else np.arange(self.src.n) / fps
-        self.frame_t = np.asarray(ft[: self.src.n] if len(ft) >= self.src.n else ft, float)
+        self.frame_t = np.asarray(ft, float)
         self.n_frames = len(self.frame_t)
         self.t_end = float(self.frame_t[-1] + 1 / fps) if self.n_frames else 0.0
 
@@ -77,7 +104,7 @@ class ReviewWindow(QtWidgets.QMainWindow):
 
         self.frame = 0
         self.sel = 0
-        self.blind = True
+        self.blind = self.labeling  # without labeling, RFID is the context and always shown
         self.playing = False
         self.speed = 1.0
         self._watch_from: float | None = None
@@ -95,8 +122,10 @@ class ReviewWindow(QtWidgets.QMainWindow):
 
     # ================================================================== UI
     def _build(self) -> None:
-        self.video = VideoView()
-        self.video.load_rois(self.sess.rois, editable=False)
+        self.video = None
+        if self.video_on:
+            self.video = VideoView()
+            self.video.load_rois(self.sess.rois, editable=False)
 
         self.plot = pg.PlotWidget()
         self.plot.setBackground("#fcfcfb")
@@ -114,12 +143,13 @@ class ReviewWindow(QtWidgets.QMainWindow):
         self.sel_band = pg.LinearRegionItem(orientation="horizontal", movable=False,
                                             brush=qcolor("#2a78d6", 28), pen=pg.mkPen(None))
         self.sel_band.setZValue(-10)
+        self.sel_band.setVisible(self.labeling)
         self.plot.addItem(self.sel_band)
         self._bar_items: list = []
         self._cov_items: list = []
         self.plot.setXRange(0, min(self.t_end, 120))
         self.sound = None
-        if self.sess.audio and self.P.audio is not None:
+        if self.audio_on:
             try:
                 from .sound_panel import AXIS_W, SoundLabeler
 
@@ -132,41 +162,46 @@ class ReviewWindow(QtWidgets.QMainWindow):
         side = QtWidgets.QWidget()
         side.setFixedWidth(370)
         v = QtWidgets.QVBoxLayout(side)
+        what = [w for w, on in (("video", self.video_on), ("audio", self.audio_on)) if on] or ["RFID only"]
+        length = f"{self.n_frames} frames, " if self.video_on else ""
         info = QtWidgets.QLabel(f"<b>{self.sess.name}</b><br>{self.sess.path.name}<br>"
-                                f"{self.n_frames} frames, {self.t_end / 60:.1f} min")
+                                f"{length}{self.t_end / 60:.1f} min · reviewing {' + '.join(what)}")
         info.setWordWrap(True)
         v.addWidget(info)
 
-        g = QtWidgets.QGroupBox("Mode")
-        h = QtWidgets.QVBoxLayout(g)
-        self.rb_blind = QtWidgets.QRadioButton("Blind labeling (RFID hidden)")
-        self.rb_cur = QtWidgets.QRadioButton("Curate (show RFID, find disagreements)")
-        self.rb_blind.setChecked(True)
-        self.rb_cur.toggled.connect(lambda on: self.set_blind(not on))
-        for w in (self.rb_blind, self.rb_cur):
-            w.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-            h.addWidget(w)
-        v.addWidget(g)
+        self.roi_list = None
+        if self.labeling:
+            g = QtWidgets.QGroupBox("Mode")
+            h = QtWidgets.QVBoxLayout(g)
+            self.rb_blind = QtWidgets.QRadioButton("Blind labeling (RFID hidden)")
+            self.rb_cur = QtWidgets.QRadioButton("Curate (show RFID, find disagreements)")
+            self.rb_blind.setChecked(True)
+            self.rb_cur.toggled.connect(lambda on: self.set_blind(not on))
+            for w in (self.rb_blind, self.rb_cur):
+                w.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+                h.addWidget(w)
+            v.addWidget(g)
 
-        g = QtWidgets.QGroupBox("Place (Up/Down)")
-        h = QtWidgets.QVBoxLayout(g)
-        self.roi_list = QtWidgets.QListWidget()
-        self.roi_list.addItems(self.rois)
-        self.roi_list.setFixedHeight(max(24, self.roi_list.sizeHintForRow(0)) * len(self.rois) + 8)
-        self.roi_list.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self.roi_list.currentRowChanged.connect(self.select_roi)
-        h.addWidget(self.roi_list)
-        v.addWidget(g)
+            g = QtWidgets.QGroupBox("Place (Up/Down)")
+            h = QtWidgets.QVBoxLayout(g)
+            self.roi_list = QtWidgets.QListWidget()
+            self.roi_list.addItems(self.rois)
+            self.roi_list.setFixedHeight(max(24, self.roi_list.sizeHintForRow(0)) * len(self.rois) + 8)
+            self.roi_list.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+            self.roi_list.currentRowChanged.connect(self.select_roi)
+            h.addWidget(self.roi_list)
+            v.addWidget(g)
 
-        g = QtWidgets.QGroupBox("Subject keys")
-        h = QtWidgets.QVBoxLayout(g)
-        keys = "".join(
-            f"<span style='background:{self.tags.color(p)}'>&nbsp;&nbsp;&nbsp;</span> <b>{i + 1}</b> {p}&nbsp;&nbsp; "
-            for i, p in enumerate(self.pigeons[:9]))
-        lab = QtWidgets.QLabel(keys + "<br><b>0</b> empty &nbsp; <b>Del</b> remove change &nbsp; <b>T</b> two-subjects flag")
-        lab.setWordWrap(True)
-        h.addWidget(lab)
-        v.addWidget(g)
+            g = QtWidgets.QGroupBox("Subject keys")
+            h = QtWidgets.QVBoxLayout(g)
+            keys = "".join(
+                f"<span style='background:{self.tags.color(p)}'>&nbsp;&nbsp;&nbsp;</span> <b>{i + 1}</b> {p}&nbsp;&nbsp; "
+                for i, p in enumerate(self.pigeons[:9]))
+            lab = QtWidgets.QLabel(keys + "<br><b>0</b> empty &nbsp; <b>Del</b> remove change &nbsp; "
+                                          "<b>T</b> two-subjects flag")
+            lab.setWordWrap(True)
+            h.addWidget(lab)
+            v.addWidget(g)
 
         g = QtWidgets.QGroupBox("Now")
         h = QtWidgets.QVBoxLayout(g)
@@ -194,8 +229,10 @@ class ReviewWindow(QtWidgets.QMainWindow):
 
         g = QtWidgets.QGroupBox("Session")
         h = QtWidgets.QGridLayout(g)
-        buttons = [("Save (Ctrl+S)", self.save), ("Analyze", self.analyze), ("Render annotated video", self.render),
-                   ("Reset reviewed spans", self.reset_coverage), ("Compress videos…", self.compress)]
+        buttons = [("Save (Ctrl+S)", self.save), ("Analyze", self.analyze)]
+        if self.video_on:
+            buttons += [("Render annotated video", self.render), ("Reset reviewed spans", self.reset_coverage),
+                        ("Compress videos…", self.compress)]
         for i, (txt, fn) in enumerate(buttons):
             b = QtWidgets.QPushButton(txt)
             b.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
@@ -208,10 +245,12 @@ class ReviewWindow(QtWidgets.QMainWindow):
         sound_help = ("<br>Sounds: S start · E end · A top suggestion · Y/R accept/reject proposal · , . prev/next · "
                       "L listen · Shift+Del delete · F1–F9 type · Alt+1–9 emitter, Alt+0 unknown"
                       if self.sound is not None else "")
+        step = "1 frame" if self.video_on else f"{1000 / self.fps:g} ms"
+        label_help = ("N/P next/prev change (this place) · D next disagreement (curate)<br>"
+                      "X mark RFID bout spurious · V mark valid (curate) · " if self.labeling else "")
         help_ = QtWidgets.QLabel(
-            "<small>Space play/pause · ←/→ 1 frame · Shift ±1 s · Ctrl ±10 s · [ ] speed<br>"
-            "N/P next/prev change (this place) · D next disagreement (curate)<br>"
-            "X mark RFID bout spurious · V mark valid (curate) · Ctrl+S save<br>"
+            f"<small>Space play/pause · ←/→ {step} · Shift ±1 s · Ctrl ±10 s · [ ] speed<br>"
+            f"{label_help}Ctrl+S save<br>"
             "Click or drag on the timeline to seek; wheel zooms." + sound_help + "</small>")
         help_.setWordWrap(True)
         v.addWidget(help_)
@@ -221,12 +260,13 @@ class ReviewWindow(QtWidgets.QMainWindow):
         v.addLayout(help_about_row(self, "review"))
 
         left = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-        left.addWidget(self.video)
+        if self.video is not None:
+            left.addWidget(self.video)
         left.addWidget(self.plot)
         if self.sound is not None:
             left.addWidget(self.sound.lanes)
-            left.setSizes([520, 160, 300])
-        left.setStretchFactor(0, 1)
+            left.setSizes([520, 160, 300] if self.video is not None else [160, 800])
+        left.setStretchFactor(0 if self.video is not None else left.count() - 1, 1)
         scroll = QtWidgets.QScrollArea()
         scroll.setWidget(side)
         scroll.setWidgetResizable(True)
@@ -237,7 +277,8 @@ class ReviewWindow(QtWidgets.QMainWindow):
         hl.addWidget(left, 1)
         hl.addWidget(scroll)
         self.setCentralWidget(w)
-        self.roi_list.setCurrentRow(0)
+        if self.roi_list is not None:
+            self.roi_list.setCurrentRow(0)
         from .tips import REVIEW, REVIEW_ATTR, apply_tips
 
         apply_tips(self, REVIEW, REVIEW_ATTR, self)
@@ -255,19 +296,20 @@ class ReviewWindow(QtWidgets.QMainWindow):
         sc("Shift+Left", lambda: self.seek_time(self.t - 1))
         sc("Ctrl+Right", lambda: self.seek_time(self.t + 10))
         sc("Ctrl+Left", lambda: self.seek_time(self.t - 10))
-        sc("Up", lambda: self.roi_list.setCurrentRow(max(0, self.sel - 1)))
-        sc("Down", lambda: self.roi_list.setCurrentRow(min(len(self.rois) - 1, self.sel + 1)))
-        for i in range(min(9, len(self.pigeons))):
-            sc(str(i + 1), lambda p=self.pigeons[i]: self.set_state(p))
-        sc("0", lambda: self.set_state(EMPTY))
-        sc("Delete", self.delete_change)
-        sc("Backspace", self.delete_change)
-        sc("T", self.toggle_two_birds)
-        sc("N", lambda: self.jump_change(+1))
-        sc("P", lambda: self.jump_change(-1))
-        sc("D", self.next_disagreement)
-        sc("X", lambda: self.curate("spurious"))
-        sc("V", lambda: self.curate("valid"))
+        if self.labeling:
+            sc("Up", lambda: self.roi_list.setCurrentRow(max(0, self.sel - 1)))
+            sc("Down", lambda: self.roi_list.setCurrentRow(min(len(self.rois) - 1, self.sel + 1)))
+            for i in range(min(9, len(self.pigeons))):
+                sc(str(i + 1), lambda p=self.pigeons[i]: self.set_state(p))
+            sc("0", lambda: self.set_state(EMPTY))
+            sc("Delete", self.delete_change)
+            sc("Backspace", self.delete_change)
+            sc("T", self.toggle_two_birds)
+            sc("N", lambda: self.jump_change(+1))
+            sc("P", lambda: self.jump_change(-1))
+            sc("D", self.next_disagreement)
+            sc("X", lambda: self.curate("spurious"))
+            sc("V", lambda: self.curate("valid"))
         sc("[", lambda: self.speed_box.setCurrentIndex(max(0, self.speed_box.currentIndex() - 1)))
         sc("]", lambda: self.speed_box.setCurrentIndex(min(len(SPEEDS) - 1, self.speed_box.currentIndex() + 1)))
         sc("Ctrl+S", self.save)
@@ -305,7 +347,7 @@ class ReviewWindow(QtWidgets.QMainWindow):
             self._track_watch(t_prev, self.t)
         else:
             self._watch_from = None
-        img = self.src.get(idx)
+        img = self.src.get(idx) if self.src is not None else None
         if img is not None:
             self.video.set_image(img)
         self._refresh_now()
@@ -356,13 +398,14 @@ class ReviewWindow(QtWidgets.QMainWindow):
             return
         if self._watch_from is None:
             self._watch_from = t_prev
-        self.coverage = merge_spans(self.coverage + [(self._watch_from, t_new)])
         if self.sound is not None:
             self.sound.watched(self._watch_from, t_new)
+        if self.labeling:  # only watched video counts as reviewed for the place labels
+            self.coverage = merge_spans(self.coverage + [(self._watch_from, t_new)])
+            self.dirty = True
+            if int(t_new) != int(t_prev):
+                self._rebuild_timeline()
         self._watch_from = t_new
-        self.dirty = True
-        if int(t_new) != int(t_prev):
-            self._rebuild_timeline()
 
     # ================================================================== labels
     def state_at(self, roi: str, t: float) -> str:
@@ -504,6 +547,8 @@ class ReviewWindow(QtWidgets.QMainWindow):
         self.select_roi(self.sel)
 
     def _lane_y(self, i: int, kind: int) -> float:
+        if not self.labeling:
+            return float(i)  # one RFID lane per place
         return i * (1 if self.blind else 2.4) + kind
 
     def _rebuild_timeline(self, only_labels: bool = False) -> None:
@@ -511,7 +556,7 @@ class ReviewWindow(QtWidgets.QMainWindow):
             self.plot.removeItem(it)
         self._bar_items = []
         h = 0.7
-        lab = self.labels_df()
+        lab = self.labels_df() if self.labeling else self.labels_df().iloc[0:0]
         for i, roi in enumerate(self.rois):
             g = lab[lab["roi"] == roi]
             for pig, gg in g.groupby("pigeon"):
@@ -532,7 +577,8 @@ class ReviewWindow(QtWidgets.QMainWindow):
                     self._bar_items.append(bar)
         ticks = []
         for i, roi in enumerate(self.rois):
-            ticks.append((self._lane_y(i, 0), f"{roi} label"))
+            if self.labeling:
+                ticks.append((self._lane_y(i, 0), f"{roi} label"))
             if not self.blind:
                 ticks.append((self._lane_y(i, 1), f"{roi} RFID"))
         ax = self.plot.getAxis("left")
@@ -545,7 +591,7 @@ class ReviewWindow(QtWidgets.QMainWindow):
         for it in self._cov_items:
             self.plot.removeItem(it)
         self._cov_items = []
-        for a, b in self.coverage:
+        for a, b in (self.coverage if self.labeling else []):
             r = pg.LinearRegionItem((a, b), movable=False, brush=qcolor("#898781", 30), pen=pg.mkPen(None))
             r.setZValue(-20)
             self.plot.addItem(r)
@@ -559,13 +605,17 @@ class ReviewWindow(QtWidgets.QMainWindow):
             if t < x0 or t > x1 - (x1 - x0) * 0.1:
                 w = x1 - x0
                 self.plot.setXRange(t - 0.2 * w, t + 0.8 * w, padding=0)
-        lines = [f"<b>t = {t:.2f} s</b> &nbsp; frame {self.frame}/{self.n_frames - 1} &nbsp; {self.speed:g}×"]
+        frame = f"frame {self.frame}/{self.n_frames - 1} &nbsp; " if self.video_on else ""
+        lines = [f"<b>t = {t:.2f} s</b> &nbsp; {frame}{self.speed:g}×"]
         b = self.P.bouts
         for i, roi in enumerate(self.rois):
-            who = self.state_at(roi, t)
             rf = b[(b["roi"] == roi) & (b["start_s"] <= t) & (b["stop_s"] > t)]
             rf_names = sorted(rf.loc[rf["curated"] != "spurious", "pigeon"].unique().tolist())
             rf_txt = "+".join(rf_names) if rf_names else "-"
+            if not self.labeling:
+                lines.append(f"<b>{roi}</b>: RFID <b>{rf_txt}</b>")
+                continue
+            who = self.state_at(roi, t)
             lab_txt = who if who != EMPTY else "-"
             flagged = any(abs(f[0] - t) < 0.5 for f in self.flags.get(roi, []))
             mark = "▶ " if i == self.sel else "&nbsp;&nbsp;&nbsp;"
@@ -584,8 +634,9 @@ class ReviewWindow(QtWidgets.QMainWindow):
                 color = RED if disagree else (self.tags.color(who) if who != EMPTY else GRAY)
                 text = f"{roi}: {lab_txt} | RFID {rf_txt}"
             self.video.set_roi_state(roi, color, 4 if i == self.sel else 2, text)
-        cov_s = sum(b2 - a for a, b2 in self.coverage)
-        lines.append(f"<small>reviewed: {cov_s / 60:.1f} min{' · unsaved changes' if self.dirty else ''}</small>")
+        if self.labeling:
+            cov_s = sum(b2 - a for a, b2 in self.coverage)
+            lines.append(f"<small>reviewed: {cov_s / 60:.1f} min{' · unsaved changes' if self.dirty else ''}</small>")
         self.now_label.setText("<br>".join(lines))
 
     def _timeline_click(self, ev) -> None:
@@ -593,6 +644,8 @@ class ReviewWindow(QtWidgets.QMainWindow):
             return
         pos = self.plot.getViewBox().mapSceneToView(ev.scenePos())
         self.seek_time(pos.x())
+        if self.roi_list is None:
+            return
         kinds = (0,) if self.blind else (0, 1)
         d = [min(abs(pos.y() - self._lane_y(i, k)) for k in kinds) for i in range(len(self.rois))]
         if d and min(d) < 0.8:
@@ -600,15 +653,19 @@ class ReviewWindow(QtWidgets.QMainWindow):
 
     # ================================================================== persistence / actions
     def save(self, quiet: bool = False) -> None:
-        save_labels(self.sess, self.labels_df())
-        save_coverage(self.sess, self.coverage, self.annotator)
-        self.curation.to_csv(self.sess.file(CURATION_FILE), index=False)
+        saved = []
+        if self.labeling:  # without video the place labels, coverage and curation stay as they are on disk
+            save_labels(self.sess, self.labels_df())
+            save_coverage(self.sess, self.coverage, self.annotator)
+            self.curation.to_csv(self.sess.file(CURATION_FILE), index=False)
+            saved.append(f"labels ({len(self.labels_df())} intervals), coverage, curation")
         if self.sound is not None:
             self.sound.save()
+            saved.append(f"sound events ({len(self.sound.events)})")
         self.dirty = False
         self._refresh_now()
         if not quiet:
-            self.statusBar().showMessage(f"Saved labels ({len(self.labels_df())} intervals), coverage, curation", 4000)
+            self.statusBar().showMessage("Saved " + (", ".join(saved) or "nothing to save"), 4000)
 
     def reset_coverage(self) -> None:
         if QtWidgets.QMessageBox.question(self, "Reset", "Forget all reviewed spans?") == \
@@ -739,16 +796,63 @@ def _summary_text(s: dict) -> str:
     return "\n".join(out)
 
 
-def main(session_path: str, annotator: str = "") -> None:
+class StartDialog(QtWidgets.QDialog):
+    """Before the review opens: the annotator's initials and what to review (only what the session has)."""
+
+    def __init__(self, sess: Session, annotator: str = "", video: bool = True, audio: bool = True):
+        super().__init__()
+        self.setWindowTitle(f"MAVRIC - Review - {sess.path.name}")
+        self.initials = QtWidgets.QLineEdit(annotator)
+        form = QtWidgets.QFormLayout()
+        form.addRow("Your initials", self.initials)
+        g = QtWidgets.QGroupBox("Review")
+        v = QtWidgets.QVBoxLayout(g)
+        self.cb_video = QtWidgets.QCheckBox("Video: place labels and RFID curation")
+        self.cb_audio = QtWidgets.QCheckBox("Audio: sound events")
+        missing = []
+        for cb, have, want, what in ((self.cb_video, bool(sess.cameras), video, "continuous video"),
+                                     (self.cb_audio, sess.audio is not None, audio, "audio")):
+            cb.setEnabled(have)
+            cb.setChecked(have and want)
+            v.addWidget(cb)
+            if not have:
+                missing.append(what)
+        if missing:
+            note = QtWidgets.QLabel(f"<small>Not in this session: {' and '.join(missing)}. "
+                                    "The RFID timeline and the analysis are always available.</small>")
+            note.setWordWrap(True)
+            v.addWidget(note)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok |
+                                             QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.addLayout(form)
+        lay.addWidget(g)
+        lay.addWidget(buttons)
+        from .tips import REVIEW, apply_tips
+
+        apply_tips(self, REVIEW)
+
+    def values(self) -> tuple[str, bool, bool]:
+        """(initials, review video, review audio)"""
+        return self.initials.text().strip(), self.cb_video.isChecked(), self.cb_audio.isChecked()
+
+
+def main(session_path: str, annotator: str = "", only: str | None = None) -> None:
+    """only: "video" or "audio" reviews just that. With an annotator given, the start dialog is skipped."""
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     if not session_path:
         session_path = QtWidgets.QFileDialog.getExistingDirectory(None, "Open session folder", "sessions")
         if not session_path:
             return
     sess = Session.open(session_path)
+    video, audio = only in (None, "video"), only in (None, "audio")
     if not annotator:
-        annotator, ok = QtWidgets.QInputDialog.getText(None, "Annotator", "Your initials:")
-        annotator = annotator if ok else ""
-    win = ReviewWindow(sess, annotator)
+        dlg = StartDialog(sess, annotator, video, audio)
+        if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        annotator, video, audio = dlg.values()
+    win = ReviewWindow(sess, annotator, video=video, audio=audio)
     win.show()
     app.exec()

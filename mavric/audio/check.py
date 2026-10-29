@@ -76,8 +76,9 @@ def audio_check(cfg: AudioConfig, seconds: float = 10.0, tones: bool = False, to
                     done.add(name)
             time.sleep(0.02)
         st.detach()
-        played = list(st.mixer.played)
+        played = [e for e in list(st.played) if e["kind"] == "start"]
         flags = dict(st.flag_counts)
+        round_trip = st.play_offset
     finally:
         st.close()
     x = sink.data()
@@ -138,11 +139,16 @@ def audio_check(cfg: AudioConfig, seconds: float = 10.0, tones: bool = False, to
     if plan:
         k_first = sink.k_first or 0
         rep["tones"] = []
-        for k0, out_ch, name in played:
-            start = k0 - k_first
+        rep["round_trip_ms"] = round_trip / sr * 1e3  # reported by the driver: output -> input, without the air
+        for e in played:
+            start = e["sample"] - k_first
+            name, out_ch = e["speaker"], e["channel"]
             r = {"speaker": name, "output": out_ch + 1, "at_s": start / sr, "mics": {}}
             for j in cfg.mic_indices:
-                r["mics"][cfg.names[j]] = tone_response(x[:, j], start, sr)
+                m = tone_response(x[:, j], start, sr)
+                if m.get("heard") and round_trip:
+                    m["air_ms"] = m["delay_ms"] - rep["round_trip_ms"]  # ~2.9 ms per metre
+                r["mics"][cfg.names[j]] = m
             rep["tones"].append(r)
             if not any(m["heard"] for m in r["mics"].values()):
                 w.append(f"tone on {name} (output {out_ch + 1}) not heard by the microphones: speaker powered "

@@ -44,8 +44,11 @@ def test_acquire_and_dialogs_have_tips(app, tmp_path):
     dialogs = [
         OutputsDialog(win, ctl), VideoSettingsDialog(win), CompressDialog(win, tmp_path, {}),
         DeviceEditor(win, "io", {"type": "arduino_io"}),
+        DeviceEditor(win, "spk", {"type": "audio"}),
         RuleEditor(win, Rule("r", "sim", "mark", event="enter"), {"sim": {"type": "sim"}}, ctl.rig["antennas"],
                    ctl.tags),
+        RuleEditor(win, Rule("p", "spk", "play", event="enter"), {"spk": {"type": "audio"}}, ctl.rig["antennas"],
+                   ctl.tags, choices={"sound": ["test_tone"], "speakers": ["all", "spk1"]}),
         ClipEditor(win, TriggerRule("c", "cam0"), ctl.rig["cameras"], ctl.rig["antennas"], ctl.tags),
     ]
     for d in dialogs:

@@ -115,13 +115,17 @@ def test_ring_and_mixer():
     assert np.all(out[:, 1] == 0.25) and np.all(out[:, 0] == 0)
     m.render(out, 1064)
     assert np.all(out[:36, 1] == 0.25) and np.all(out[36:, 1] == 0)
-    assert list(m.played) == [(1000, 1, "a")]
+    assert [(e["kind"], e["sample"], e["channel"], e["name"]) for e in m.log] == [("start", 1000, 1, "a"),
+                                                                                 ("end", 1100, 1, "a")]
     m.play(np.ones(1000), 0, gain=4.0)
     m.render(out, 1128)
     assert out[:, 0].max() == pytest.approx(10 ** (-6 / 20), rel=1e-6)  # limiter
-    m.stop()
-    m.render(out, 1192)
-    assert not out.any() and not m.busy
+    m.stop()  # fades out over 10 ms (480 samples)
+    for i in range(8):
+        m.render(out, 1192 + 64 * i)
+    assert not m.busy
+    m.render(out, 1704)
+    assert not out.any()
     with pytest.raises(ValueError):
         m.play(np.ones(10), 2)
 

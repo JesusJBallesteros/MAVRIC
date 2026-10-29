@@ -3,7 +3,8 @@
     sound_events.csv     annotator, start_s, stop_s, type, emitter, channel, f_low_hz, f_high_hz,
                          confidence, source, note
     sound_coverage.csv   annotator, start_s, stop_s   (time actually reviewed for sounds)
-    audio_playback.csv   (written by playback, AU4) speaker, sound, sample, n_samples[, rule]
+    audio_playback.csv   (written by the recorder, AU4) sample, n_samples, speaker, sound, gain_db, loop,
+                         stopped, source, latency_samples
 
 Times are seconds on the session timeline, like perch labels. `emitter` is a
 tagged subject (pigeon name), `system:<speaker>` for sounds the rig played, or
@@ -25,10 +26,10 @@ import yaml
 
 from ..config import read_yaml
 from ..session import Session
+from .recorder import PLAYBACK_FILE
 
 EVENTS_FILE = "sound_events.csv"
 COVERAGE_FILE = "sound_coverage.csv"
-PLAYBACK_FILE = "audio_playback.csv"
 UNKNOWN = "unknown"
 SYSTEM = "system"
 DEFAULT_TYPES = ["call", "noise", "other"]

@@ -488,7 +488,8 @@ class SoundLabeler(QtCore.QObject):
         for b in (self.b_detect, b_yes, b_no):
             row.addWidget(b)
         f.addLayout(row, 6, 0, 1, 3)
-        self.cb_listen = QtWidgets.QCheckBox("Play audio with the video")
+        self.cb_listen = QtWidgets.QCheckBox("Play audio during playback")
+        self.cb_listen.setChecked(not self.win.video_on)  # without video, playback is for listening
         self.listen_box = QtWidgets.QComboBox()
         self.listen_box.addItems(self.src.mics + (["both (stereo)"] if len(self.src.mics) >= 2 else []))
         b_listen = QtWidgets.QPushButton("Listen (L)")

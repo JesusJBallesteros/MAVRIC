@@ -296,13 +296,78 @@ class CommandDevice(OutputDevice):
         return f"found {found}"
 
 
-def make_device(name: str, cfg: dict) -> OutputDevice:
+class AudioOutputDevice(OutputDevice):
+    """Plays library sounds on the speakers of the acquisition's audio stream.
+
+    `get_player()` returns the live mavric.audio.player.Player, or None while
+    audio is not connected (actions then fail with a clear message). hold_play
+    loops its sound from a while-rule's start until its stop; disarming fades
+    out every sound.
+    """
+
+    type = "audio"
+
+    def __init__(self, name, params, get_player=None):
+        super().__init__(name, params)
+        self.get_player = get_player or (lambda: None)
+        self._held: dict[str, list[int]] = {}  # rule -> voices of its hold_play
+        self._lock = threading.Lock()
+
+    def _player(self):
+        p = self.get_player()
+        if p is None:
+            raise RuntimeError("audio is not connected (Connect audio; speakers in rig.yaml audio.speakers)")
+        return p
+
+    def _play(self, p, params, ctx, loop: bool):
+        rule = ctx.get("rule", "")
+        return p.play(render(params.get("sound", ""), ctx), render(str(params.get("speakers", "all")), ctx),
+                      float(params.get("gain_db", 0.0)), loop, f"rule:{rule}" if rule else "outputs")
+
+    def execute(self, action, params, ctx):
+        p = self._player()
+        if action == "play":
+            return "play " + self._play(p, params, ctx, bool(params.get("loop", False)))[1]
+        if action == "stop":
+            return p.stop(render(str(params.get("speakers", "all")), ctx))
+        if action == "hold_play":
+            rule = ctx.get("rule", "")
+            with self._lock:
+                old = self._held.pop(rule, [])
+            stopped = p.stop(voices=old) if old else "nothing playing"
+            if ctx.get("event") == "start":
+                ids, text = self._play(p, params, ctx, True)
+                with self._lock:
+                    self._held[rule] = ids
+                return "hold_play " + text
+            return stopped
+        raise ValueError(f"unknown action {action!r}")
+
+    def safe_state(self):
+        with self._lock:
+            self._held.clear()
+        p = self.get_player()
+        if p is not None:
+            p.stop_all()
+
+    def test(self):
+        p = self._player()
+        from ..audio.library import TEST_TONE
+
+        _ids, text = p.play(TEST_TONE, "all", 0.0, source="test")
+        return f"played {text}; {len(p.library.sounds)} sound(s) in {p.library.folder}"
+
+
+def make_device(name: str, cfg: dict, resources: dict | None = None) -> OutputDevice:
+    """resources: shared live objects some devices need ({"player": callable returning the audio Player})."""
     from .arduino_io import ArduinoIODevice
 
     kinds = {"sim": SimDevice, "udp": UdpDevice, "tcp": TcpDevice, "intan_rhx": IntanRhxDevice,
              "matlab": MatlabDevice, "command": CommandDevice, "arduino_io": ArduinoIODevice}
     dtype = cfg.get("type")
+    params = {k: v for k, v in cfg.items() if k != "type"}
+    if dtype == "audio":
+        return AudioOutputDevice(name, params, (resources or {}).get("player"))
     if dtype not in kinds:
         raise ValueError(f"unknown device type {dtype!r}")
-    params = {k: v for k, v in cfg.items() if k != "type"}
     return kinds[dtype](name, params)

@@ -14,9 +14,16 @@
 > They have not yet run on the MOTU M4 (not connected to the development PC). The PortAudio path was checked on a
 > USB microphone.
 >
-> **AU3 (sound events in `mavric review`) is built** (2026-10-23) and tested on simulated sessions.
+> **AU3 (sound events in `mavric review`) is built** (2026-10-23) and tested on simulated sessions. Since 2026-10-28
+> `mavric review` also opens sessions without video (audio only).
 >
-> **Still to build:** AU4 (playback) and AU5 (analysis).
+> **AU4 (playback) is built** (2026-10-28) and tested in simulation: stimulus library, mixer with loop/fade/limiter,
+> playback log, soundboard, `audio` output device for rules, `mavric audio sounds|play`. Schedules (playlists) are not
+> built.
+>
+> **First hardware test** (2026-10-28): two microphones and the sync cable (D50 → In 3) on the M4, no speakers yet.
+>
+> **Still to build:** AU5 (analysis).
 >
 > The project lead's decisions are in §7.
 
@@ -103,11 +110,10 @@ audio:
   format: FLAC             # FLAC | WAV (RF64)
   subtype: PCM_24
   split_s: 3600            # one file per hour, no gap between files
-  max_level_dbfs: -6       # playback limiter
+  max_level_dbfs: -6       # playback limiter: the mix is clipped above this level
   display_fmax_hz: 10000   # live spectrogram range
+  sounds_dir: sounds       # stimulus library (AU4)
 ```
-
-AU4 will add `sounds_dir` (the stimulus library).
 
 ## 5. Integration plan
 
@@ -175,7 +181,8 @@ AU4 will add `sounds_dir` (the stimulus library).
   misses are two birds on the same side, or overlapping calls.
 - **Proposals in simulation:** 100% of calls found, median onset error 14 ms. Overlapping calls are merged into one
   proposal.
-- **Playback log:** `audio_playback.csv` (speaker, sound, sample, n_samples) is read if present. AU4 will write it.
+- **Playback log:** `audio_playback.csv` (written by AU4) is read if present; each played sound becomes an event with
+  emitter `system:<speaker>`.
 - **Praat TextGrids:** not included (Audacity and Raven only).
 
 **Original plan**
@@ -203,7 +210,44 @@ In `mavric review`:
 - **Import/export** of Audacity / Raven / Praat labels through crowsetta.
 - **Auto-proposals:** a band-limited energy detector proposes events; the annotator accepts, edits or deletes them.
 
-### AU4: Playback (stimuli)
+### AU4: Playback (stimuli) [built]
+
+**As built**
+- **Code:** `mavric/audio/library.py` (library), `player.py` (play / stop on named speakers), the mixer in
+  `stream.py`, the playback log in `recorder.py`, the `audio` device in `mavric/outputs/devices.py`, and the
+  soundboard in the acquire window.
+- **Library:** WAV / FLAC / OGG under `audio.sounds_dir`, named by their path without the extension.
+  - **Conversion:** mixed to mono and resampled (FFT) to the stream rate, once at load.
+  - **Built in:** `test_tone`.
+  - **Recorded per session:** each sound's file, length, rate and SHA-1, in `session.json → audio.sounds`.
+- **Mixer** (in the audio callback):
+  - **Voices:** each sound is a voice with an id, gain and optional loop.
+  - **Stop:** by voice, speaker or all, with a 10 ms fade-out; a sound stopped before it starts is cancelled.
+  - **Limiter:** the mix is clipped at `max_level_dbfs`, and clipped samples are counted per output. Starting a sound
+    whose peak plus gain is above the limit is reported as *LIMITED*.
+- **Timing:** a sound starts with the next block after the request (at most one block, 21 ms, plus the device's output
+  latency).
+- **Log:** `audio_playback.csv`, one row per sound, written when it ends, with columns `sample`, `n_samples`,
+  `speaker`, `sound`, `gain_db`, `loop`, `stopped`, `source` and `latency_samples`.
+  - **`sample`:** the recording sample at the speaker output. It is the rendered sample plus the driver's
+    output → input round trip, which PortAudio reports for the duplex stream.
+  - **Check on the rig:** `mavric audio test --tones` prints that round trip and, per microphone, the rest of the
+    delay: the air.
+  - **In simulation:** a soundboard tone is found in the near microphone exactly 3.0 ms (the simulated air) after its
+    logged sample.
+- **Outputs:** device type `audio`, with three actions:
+  - `play`: sound, speakers, gain dB, loop. The sound name accepts placeholders such as `{subject}_call`.
+  - `stop`: speakers, or all.
+  - `hold_play`: loops while a while-rule is active, then fades out.
+
+  Disarming fades out every sound. Each action is in `actions.csv`.
+- **Soundboard:** sound, speaker, gain and loop; **Play** and **Stop all**. Manual plays are logged in `actions.csv`
+  (event `manual`) and in `audio_playback.csv` (`source` soundboard).
+- **Command line:** `mavric audio sounds` lists the library. `mavric audio play <sound> [--speaker] [--gain-db]
+  [--sim]` plays one and reports the limiter.
+- **Not built:** schedules (randomized playlists independent of RFID). Speaker level calibration is still open (§7).
+
+**Original plan**
 - **Sound library:** WAV/FLAC files in `sounds/`, loaded into memory and resampled to 48 kHz at start.
   - Stimuli are short (under 2 s, mostly under 1 s), so the whole library sits in memory.
   - Any length plays as is. **No padding to a common length is needed:** the mixer plays each file to its end, and
@@ -239,7 +283,7 @@ In `mavric review`:
 |---|---|
 | Audio block (1024 @ 48 kHz, default) | 21 ms |
 | Audio ↔ RFID alignment with the sync channel | < 1 ms (sample-accurate pulses) |
-| Rule → sound start, M4 ASIO | ~5–15 ms after the rule fires |
+| Rule → sound start, M4 ASIO | up to one block (21 ms at `block: 1024`) plus the output latency; a smaller block shortens it. The exact start is logged either way. |
 | Rule → sound start, 8A WASAPI exclusive | ~10–25 ms |
 | RFID event → rule | ~5 ms after the sampling round's lines (already implemented) |
 | Sound start known in the recording | exact on the M4 (duplex); exact with a loopback channel on the 8A |
@@ -256,7 +300,8 @@ In `mavric review`:
    - **Format:** WAV or FLAC, 48 kHz, mono. Other rates are resampled once at load.
    - **Length:** padding to a common length is not needed.
 
-**Still open:** whether each speaker needs a calibrated level (SPL meter at the bird's position), for AU4.
+**Still open:** whether each speaker needs a calibrated level (SPL meter at the bird's position). AU4 plays each
+sound at its file level plus the rule's gain; a per-speaker calibration offset can be added once this is decided.
 
 ## Sources
 

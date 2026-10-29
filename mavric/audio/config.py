@@ -23,6 +23,7 @@ class AudioConfig:
     pulse_s: float = 0.080  # sync pulse width (rig sync.led_pulse_s)
     enabled: bool = False
     mic_near: dict[str, list[int]] = field(default_factory=dict)  # mic -> antennas next to it
+    sounds_dir: str = "sounds"  # stimulus library (WAV/FLAC), relative to the project root
 
     @classmethod
     def from_rig(cls, rig: dict) -> "AudioConfig":
@@ -50,6 +51,7 @@ class AudioConfig:
             enabled=bool(a.get("enabled", False)),
             mic_near={str(k): [int(x) for x in (v if isinstance(v, list) else [v])]
                       for k, v in (a.get("mic_near") or {}).items()},
+            sounds_dir=str(a.get("sounds_dir") or "sounds"),
         )
 
     # ------------------------------------------------------------------ channel layout

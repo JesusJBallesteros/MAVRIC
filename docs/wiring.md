@@ -449,6 +449,10 @@ MEGA GND ─────────────┴──────── TRS 
    - There are no input overflows.
 3. **Speakers:** `mavric audio test --tones`. Each speaker's tone is heard on its nearer microphone, with a delay of a
    few tens of ms. Keep the birds out of the room, or keep `--tone-db` low (default −30 dBFS).
+   - **Round trip:** the test prints the driver's round trip. The rest of each delay is the air, about 2.9 ms per
+     metre from speaker to microphone.
+   - **One speaker by ear:** `mavric audio play test_tone --speaker spk1 --gain-db -10`.
+   - **Before the speakers are connected:** the M4's headphone output carries Out 1–2 (spk1, spk2), not Out 3–4.
 4. **Synchronization:** make a 5-minute recording in `mavric acquire` (Connect audio), then run `mavric analyze`. The
    audio line must say **PASS**.
 

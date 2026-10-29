@@ -234,3 +234,65 @@ def test_review_window_sound_labeling(sound_session):
     win.dirty = snd.dirty = False
     win.close()
     sess.file("sound_events.csv").unlink()
+
+
+def test_review_without_video(tmp_path):
+    """An audio test without cameras: the start dialog offers audio only, and the window runs on its own clock."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtWidgets
+
+    from mavric.gui.review_window import CLOCK_HZ, ReviewWindow, StartDialog
+    from mavric.gui.tips import missing_tips
+    from mavric.session import COVERAGE_FILE, CURATION_FILE, LABELS_FILE
+    from mavric.sim import simulate_session
+
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    sess = simulate_session(tmp_path, duration_s=30, seed=3, audio=True, write_labels=False)
+    sess.meta["cameras"] = []  # as recorded without cameras
+    sess.save_meta()
+    sess = Session.open(sess.path)
+
+    dlg = StartDialog(sess, "JB")
+    assert not dlg.cb_video.isEnabled() and dlg.cb_audio.isEnabled()
+    assert dlg.values() == ("JB", False, True)
+    assert missing_tips(dlg) == []
+    dlg.close()
+
+    win = ReviewWindow(sess, "JB")  # video requested, but the session has none
+    snd = win.sound
+    assert win.src is None and win.video is None and win.roi_list is None and not win.labeling
+    assert snd is not None and win.fps == CLOCK_HZ and win.t_end >= 29
+    assert missing_tips(win) == []
+    win.seek_time(10.0)
+    assert win.t == pytest.approx(10.0, abs=1 / CLOCK_HZ)
+    t0 = win.t
+    win.step(1)
+    assert win.t == pytest.approx(t0 + 1 / CLOCK_HZ)
+    snd.mark_start()
+    win.seek_time(10.5)
+    snd.mark_end()
+    win.save(quiet=True)
+    assert len(load_events(sess)) == 1
+    for f in (LABELS_FILE, COVERAGE_FILE, CURATION_FILE):  # place labels are off without video
+        assert not sess.file(f).exists(), f
+    snd.close()
+    win.dirty = snd.dirty = False
+    win.close()
+
+
+def test_review_video_or_audio_only(sound_session):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtWidgets
+
+    from mavric.gui.review_window import ReviewWindow
+
+    sess, P, calls = sound_session
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    win = ReviewWindow(sess, "JB", audio=False)
+    assert win.sound is None and win.video is not None and win.labeling
+    win.close()
+    win = ReviewWindow(sess, "JB", video=False)
+    assert win.sound is not None and win.video is None and not win.labeling
+    win.sound.close()
+    win.dirty = win.sound.dirty = False
+    win.close()

@@ -74,7 +74,7 @@ def cmd_acquire(args):
 def cmd_review(args):
     from .gui.review_window import main as gui_main
 
-    gui_main(args.session, annotator=args.annotator)
+    gui_main(args.session, annotator=args.annotator, only=args.only)
 
 
 def cmd_analyze(args):
@@ -359,8 +359,11 @@ def cmd_audio(args):
             print(f"no device matches {cfg.device!r} on {cfg.host_api} with enough channels "
                   f"(rig.yaml audio.device / host_api)")
         return 0
-    from .audio.check import audio_check
     from .config import resolve_path
+
+    if args.what in ("sounds", "play"):
+        return _audio_play(args, cfg)
+    from .audio.check import audio_check
 
     world = None
     if args.sim:
@@ -393,9 +396,13 @@ def cmd_audio(args):
     if ck:
         print(f"  clock    {ck['drift_ppm']:+.1f} ppm vs PC, block delivery median {ck['delivery_ms_med']:.1f} ms "
               f"p95 {ck['delivery_ms_p95']:.1f} ms")
+    if rep.get("tones"):
+        print(f"  playback round trip {rep['round_trip_ms']:.1f} ms (driver); the rest of each delay is the air "
+              f"(~2.9 ms per metre)")
     for tn in rep.get("tones", []):
         heard = ", ".join(f"{m}: {r['level_dbfs']:.0f} dBFS (+{r['above_background_db']:.0f} dB), "
-                          f"{r['delay_ms']:.1f} ms" if r["heard"] else f"{m}: not heard"
+                          f"{r['delay_ms']:.1f} ms" + (f" (air {r['air_ms']:.1f} ms)" if "air_ms" in r else "")
+                          if r["heard"] else f"{m}: not heard"
                           for m, r in tn["mics"].items())
         print(f"  tone     {tn['speaker']} (out {tn['output']}) -> {heard}")
     for w in rep["warnings"]:
@@ -403,6 +410,63 @@ def cmd_audio(args):
     if rep.get("saved"):
         print(f"  saved    {rep['saved']}")
     return 1 if (not rep["seconds"] or rep["flags"].get("in_over")) else 0
+
+
+def _audio_play(args, cfg) -> int:
+    """`audio sounds`: list the stimulus library. `audio play <sound>`: play it on the speakers and wait."""
+    import time
+
+    from .audio.library import SoundLibrary
+    from .config import resolve_path
+
+    lib = SoundLibrary(resolve_path(cfg.sounds_dir), cfg.sample_rate)
+    if args.what == "sounds":
+        print(f"{len(lib.sounds) - 1} sound(s) in {lib.folder}" + ("" if lib.folder.is_dir() else " (folder missing)")
+              + f", played at {cfg.sample_rate} Hz mono")
+        for name in lib.names:
+            s = lib.sounds[name]
+            src = f"{s.source_rate} Hz" + (f", {s.source_channels} ch" if s.source_channels > 1 else "")
+            print(f"  {name:28s} {s.duration_s * 1e3:7.0f} ms  peak {s.peak_dbfs:6.1f} dBFS  ({src})")
+        for n in lib.notes:
+            print(f"  NOTE  {n}")
+        return 0
+    if not args.name:
+        print("which sound? `mavric audio sounds` lists them (test_tone is built in)")
+        return 2
+    from .audio.player import Player
+    from .audio.stream import AudioStream
+
+    world = None
+    if args.sim:
+        from .sim import SimWorld
+
+        cfg.host_api = "sim"
+        world = SimWorld.random(duration_s=3600, seed=0)
+    if not cfg.speakers:
+        print("no speakers configured (rig.yaml audio.speakers)")
+        return 2
+    st = AudioStream(cfg, world=world)
+    st.open()
+    try:
+        player = Player(st, lib)
+        try:
+            _ids, text = player.play(args.name, args.speaker, args.gain_db, source="cli")
+        except KeyError as e:
+            print(e.args[0] if e.args else e)
+            return 2
+        print(f"playing {text} ({cfg.describe()}) ...")
+        time.sleep(0.1)
+        t_end = time.monotonic() + 30
+        while st.mixer.busy and time.monotonic() < t_end:
+            time.sleep(0.05)
+        time.sleep(0.2)
+        limited = st.mixer.limited.tolist()
+    finally:
+        st.close()
+    if any(limited):
+        print(f"  WARNING  the limiter clipped {sum(limited)} sample(s) (audio.max_level_dbfs "
+              f"{cfg.max_level_dbfs:g}): lower --gain-db")
+    return 0
 
 
 def cmd_sounds(args):
@@ -532,7 +596,8 @@ def main(argv=None):
 
     r = sub.add_parser("review", help="labeling / curation / analysis GUI")
     r.add_argument("session")
-    r.add_argument("--annotator", default="")
+    r.add_argument("--annotator", default="", help="your initials; skips the start dialog")
+    r.add_argument("--only", choices=["video", "audio"], help="review only the video or only the audio")
     r.set_defaults(fn=cmd_review)
 
     z = sub.add_parser("analyze", help="sync, bouts, comparison, plots")
@@ -590,12 +655,16 @@ def main(argv=None):
     op.add_argument("--event", default=None, help="fire: enter | leave | start | stop")
     op.set_defaults(fn=cmd_outputs)
 
-    au = sub.add_parser("audio", help="list audio devices / bench-check the audio interface")
-    au.add_argument("what", choices=["devices", "test"])
+    au = sub.add_parser("audio", help="audio devices, bench check, stimulus library and playback")
+    au.add_argument("what", choices=["devices", "test", "sounds", "play"],
+                    help="devices | test | sounds (list the library) | play <sound>")
+    au.add_argument("name", nargs="?", default=None, help="play: sound name (`mavric audio sounds`)")
+    au.add_argument("--speaker", default="all", help="play: speaker name(s) or output(s), comma-separated, or all")
+    au.add_argument("--gain-db", type=float, default=0.0, help="play: gain applied to the file (dB)")
     au.add_argument("--seconds", type=float, default=10.0)
     au.add_argument("--tones", action="store_true", help="test: play a 1 kHz tone on each speaker in turn")
     au.add_argument("--tone-db", type=float, default=-30.0, help="tone level, dBFS")
-    au.add_argument("--sim", action="store_true", help="test: simulated interface")
+    au.add_argument("--sim", action="store_true", help="test / play: simulated interface")
     au.set_defaults(fn=cmd_audio)
 
     so = sub.add_parser("sounds", help="sound events: detect proposals, export / import Audacity or Raven labels")

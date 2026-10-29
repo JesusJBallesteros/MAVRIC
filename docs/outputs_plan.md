@@ -24,6 +24,8 @@ Example targets:
 > - **Deferred:** the camera-GPIO output. Its Chameleon3 nodes could not be verified because the camera was not
 >   connected. The I/O Arduino covers TTL needs.
 > - **On hold:** **Phase B2** (motor), until the TMCL program and MATLAB code are available.
+> - **Added 2026-10-28:** an `audio` device type (sounds on the speakers: `play`, `stop`, `hold_play`); see
+>   [audio_plan.md](audio_plan.md) AU4.
 > - **Next:** **Phase C** (camera ROI activity).
 
 ---

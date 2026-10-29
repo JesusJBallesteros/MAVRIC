@@ -66,13 +66,15 @@ class _RuleState:
 
 class ActionEngine:
     def __init__(self, cfg: OutputsConfig, tags: TagMap, antennas: dict[int, str], bus: EventBus | None = None,
-                 devices: dict[str, OutputDevice] | None = None):
+                 devices: dict[str, OutputDevice] | None = None, resources: dict | None = None):
+        """resources: live objects for devices that need them, e.g. {"player": callable -> audio Player}."""
         cfg.validate()
         self.cfg = cfg
         self.tags = tags
         self.antennas = antennas
         self.bus = bus
-        self.devices: dict[str, OutputDevice] = devices or {n: make_device(n, d) for n, d in cfg.devices.items()}
+        self.devices: dict[str, OutputDevice] = devices or {n: make_device(n, d, resources)
+                                                            for n, d in cfg.devices.items()}
         self.states = {r.name: _RuleState(r, set()) for r in cfg.rules}
         self.armed = False
         self.log: deque = deque(maxlen=500)
@@ -351,6 +353,22 @@ class ActionEngine:
             if self._writer is not None:
                 self._writer.write([row[c] if isinstance(row[c], str) else
                                     (f"{row[c]:.6f}" if isinstance(row[c], float) else row[c]) for c in ACTION_COLUMNS])
+
+    def log_manual(self, device: str, action: str, params: dict, result: str, status: str = "ok") -> None:
+        """An action taken by hand (the soundboard), logged like a rule's: event and source "manual"."""
+        t = now()
+        rel = t - self._t0 if self._t0 else t
+        row = {"t": rel, "event_t": rel, "rule": "", "event": "manual", "source": "manual", "antenna": "", "roi": "",
+               "pigeon": "", "tag": "", "device": device, "action": action,
+               "params": json.dumps(params, separators=(",", ":")), "status": status, "result": result,
+               "latency_ms": "", "device_us": ""}
+        self.log.append(row)
+        with self._lock:
+            if self._writer is not None:
+                self._writer.write([row[c] if isinstance(row[c], str) else
+                                    (f"{row[c]:.6f}" if isinstance(row[c], float) else row[c]) for c in ACTION_COLUMNS])
+        if self.bus:
+            self.bus.publish("action", row)
 
     def _note(self, text: str) -> None:
         t = now()

@@ -5,6 +5,7 @@ config/outputs.yaml::
     devices:
       io:      {type: arduino_io, port: COM5}
       intan:   {type: intan_rhx, host: 127.0.0.1, port: 5000}
+      speakers: {type: audio}   # the speakers of the acquisition's audio stream (sounds in sounds/)
     rules:
       - name: intan_perchB
         device: io
@@ -13,6 +14,14 @@ config/outputs.yaml::
         antennas: [2]
         who: any
         event: while
+      - name: S03_call
+        device: speakers
+        action: play            # S03 lands on PerchB -> call_A on spk2, once per 30 s
+        params: {sound: call_A, speakers: spk2, gain_db: -6}
+        antennas: [2]
+        who: [S03]
+        event: enter
+        refractory_s: 30
     clips:                      # RFID-triggered video clips (mavric.triggers), same fields as rig.yaml triggers
       - name: perchB_cam1
         camera: cam1
@@ -64,8 +73,16 @@ DEVICE_TYPES: dict[str, dict] = {
         "label": "Run a program / script",
         "params": [("program", "Program (e.g. python.exe, a .bat)", "", "str"), ("cwd", "Working folder", "", "str")],
     },
+    "audio": {
+        "label": "Audio speakers (sounds from sounds/; Connect audio first)",
+        "params": [],
+    },
     "sim": {"label": "Simulated (log only)", "params": []},
 }
+
+_SOUND = ("sound", "Sound (name in sounds/, e.g. coo_A; {subject} etc. allowed)", "test_tone", "str")
+_SPEAKERS = ("speakers", "Speaker(s): names or outputs, comma-separated, or all", "all", "str")
+_GAIN = ("gain_db", "Gain (dB, 0 = as in the file)", 0.0, "float")
 
 # action -> parameter list, per device type
 ACTIONS: dict[str, dict[str, list]] = {
@@ -100,13 +117,18 @@ ACTIONS: dict[str, dict[str, list]] = {
     "command": {
         "run": [("args", "Arguments", "{event} {roi} {subject} {t:.3f}", "str")],
     },
+    "audio": {
+        "play": [_SOUND, _SPEAKERS, _GAIN, ("loop", "Loop until a stop action", False, "bool")],
+        "stop": [_SPEAKERS],
+        "hold_play": [_SOUND, _SPEAKERS, _GAIN],  # loops while the rule is active, fades out after
+    },
     "sim": {
         "mark": [("text", "Note", "{event} {roi} {subject}", "str")],
         "hold": [],
     },
 }
 
-HOLD_ACTIONS = {"hold", "hold_record"}
+HOLD_ACTIONS = {"hold", "hold_record", "hold_play"}
 EVENTS = {
     "enter": "on enter (a matching subject arrives)",
     "leave": "on leave (a matching subject leaves)",

@@ -180,6 +180,10 @@ class SimAudioBackend:
         return {"device": "simulated", "host_api": "sim", "latency_s": [self.m.latency_s, self.m.latency_s],
                 "sample_rate": float(self.cfg.sample_rate)}
 
+    def round_trip_samples(self) -> int:
+        """Output -> input delay of the simulated interface (one block out, one block in; no air)."""
+        return 2 * self.cfg.block if self.cfg.n_out_open else 0
+
     def close(self) -> None:
         self._stop.set()
         if self._th is not None:

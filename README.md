@@ -132,7 +132,7 @@ mavric acquire
 | | Control | What to do |
 |---|---|---|
 | 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Video settings…* sets exposure, gain, size and recording format. |
-| 2 | **Audio inputs** | Level per input, with a red CLIP warning, and a counter of the sync pulses received. |
+| 2 | **Audio inputs** | Level per input, with a red CLIP warning, and a counter of the sync pulses received. With speakers configured, a **Soundboard** below plays any library sound on any speaker. |
 | 3 | **Place ROIs** | Once per setup, on the first camera: *Draw / reset* one ROI per antenna, then the sync LED box, then *Save ROIs to rig*. |
 | 4 | **Live RFID** | The tag at each place and for how long; arrivals and departures below. |
 | 5 | **Recording** | Name and notes, then *Start recording*. Everything goes to `sessions/<date>_<name>/`. |
@@ -165,7 +165,14 @@ clip in progress shows as ● CLIP.
 
 **Outputs and camera clips.**
 - **Rules:** when RFID sees a matching subject, a device acts. The device can be an I/O Arduino pin, Intan RHX, MATLAB,
-  a program or a network message. A rule can act on arrival, on departure, or for as long as the subject is present.
+  a program, a network message or a sound on the speakers. A rule can act on arrival, on departure, or for as long as
+  the subject is present.
+
+**Sounds (stimuli).** Put WAV/FLAC files in `sounds/` (ideally 48 kHz mono); `test_tone` is built in.
+`mavric audio sounds` lists them, and `mavric audio play <sound> --speaker spk1` plays one. In the acquire window, the
+**Soundboard** plays them by hand, and *Audio speakers* devices in **Outputs…** play them from rules (`play`, `stop`,
+`hold_play`). Every played sound is logged at the recording sample where it reached the speaker
+(`audio_playback.csv`), and review shows it as a sound event of the system.
 - **Camera clips:** record video on a camera while a matching subject is present. The clip includes a few seconds
   before the first read.
 
@@ -177,6 +184,11 @@ clip in progress shows as ● CLIP.
 ```bash
 mavric review sessions/<session>
 ```
+
+A start dialog asks for your initials and what to review: **Video** (place labels, RFID curation) and/or **Audio**
+(sound events). Whatever the session lacks is greyed out. Without video, the window shows the RFID lanes as context,
+the audio lanes and the Sound events panel; place labels are off. `--only audio` or `--only video` with
+`--annotator <initials>` skips the dialog.
 
 ![Review window](docs/images/review.png)
 
@@ -263,6 +275,7 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 | `mavric render <session>` | annotated video |
 | `mavric compress <session or folder>` | `<name>_compressed.mp4` copies |
 | `mavric sounds detect\|export\|import <session>` | sound-event proposals, Audacity / Raven exchange |
+| `mavric audio sounds`, `mavric audio play <sound>` | list the stimulus library, play a sound on the speakers |
 | `mavric import-boris <session> <file.tsv>` | BORIS labels as ground truth |
 | `mavric simulate [--audio]` | a complete simulated session |
 | `mavric ports` | serial ports and FLIR / Basler cameras |
@@ -279,6 +292,7 @@ copies. Git ignores them, so your tag IDs, camera serials, ports and ROIs stay o
 | File | Holds | Edited in |
 |---|---|---|
 | `rig.yaml` | ports, antennas, cameras, audio, sync | text editor |
+| `sounds/` (project root) | stimuli to play (WAV/FLAC; ignored by git) | file explorer; *↻ sounds* reloads |
 | `video.yaml` | camera and recording settings (override `rig.yaml`) | *Video settings…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | *Outputs…* |
 | `tags.csv` | tag ID → subject name and colour | text editor |
@@ -294,6 +308,7 @@ sessions/20261023_101500_demo/
   cam0_raw_000.mkv …        raw video (lossless), frames_cam0.csv = true time of every frame
   cam0_compressed.mp4       after mavric compress
   audio_000.flac            microphones + sync pulse; audio_clock.csv, audio_edges.csv
+  audio_playback.csv        every sound played on the speakers (soundboard and rules)
   clips/                    RFID-triggered clips
   actions.csv               every output decision
   manual_labels.csv, label_coverage.csv, sound_events.csv, sound_coverage.csv   from review

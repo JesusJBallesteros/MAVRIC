@@ -116,6 +116,35 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.audio_box.setVisible(False)
         v.addWidget(self.audio_box)
 
+        # soundboard (shown when audio is connected with speakers)
+        self.sound_box = QtWidgets.QGroupBox("Soundboard")
+        f = QtWidgets.QGridLayout(self.sound_box)
+        self.sb_sound = QtWidgets.QComboBox()
+        b_reload = QtWidgets.QPushButton("↻ sounds")
+        b_reload.clicked.connect(self._reload_sounds)
+        self.sb_speaker = QtWidgets.QComboBox()
+        self.sb_gain = QtWidgets.QDoubleSpinBox()
+        self.sb_gain.setRange(-60.0, 20.0)
+        self.sb_gain.setSingleStep(1.0)
+        self.sb_gain.setSuffix(" dB")
+        self.sb_loop = QtWidgets.QCheckBox("loop")
+        b_play = QtWidgets.QPushButton("▶ Play sound")
+        b_play.clicked.connect(self._play_sound)
+        b_stop = QtWidgets.QPushButton("■ Stop all sounds")
+        b_stop.clicked.connect(self._stop_sounds)
+        self.sb_label = QtWidgets.QLabel("")
+        self.sb_label.setWordWrap(True)
+        f.addWidget(self.sb_sound, 0, 0, 1, 3)
+        f.addWidget(b_reload, 0, 3)
+        f.addWidget(self.sb_speaker, 1, 0)
+        f.addWidget(self.sb_gain, 1, 1)
+        f.addWidget(self.sb_loop, 1, 2)
+        f.addWidget(b_play, 2, 0, 1, 2)
+        f.addWidget(b_stop, 2, 2, 1, 2)
+        f.addWidget(self.sb_label, 3, 0, 1, 4)
+        self.sound_box.setVisible(False)
+        v.addWidget(self.sound_box)
+
         # ROIs
         g = QtWidgets.QGroupBox("Place ROIs (one per antenna) and sync LED")
         f = QtWidgets.QGridLayout(g)
@@ -400,6 +429,11 @@ class AcquireWindow(QtWidgets.QMainWindow):
             self.left.addWidget(self.spec)
             self.left.setSizes([3 * self.left.height() // 4, self.left.height() // 4])
         self._ring_count = st.ring.count
+        if self.ctl.player is not None:
+            self.sb_speaker.clear()
+            self.sb_speaker.addItems(["all"] + self.ctl.player.speakers)
+            self._fill_sounds()
+            self.sound_box.setVisible(True)
 
     def _remove_audio_views(self) -> None:
         if self.meters is not None:
@@ -409,6 +443,42 @@ class AcquireWindow(QtWidgets.QMainWindow):
             self.spec.setParent(None)
             self.spec = None
         self.audio_box.setVisible(False)
+        self.sound_box.setVisible(False)
+
+    # ------------------------------------------------------------------ soundboard
+    def _fill_sounds(self) -> None:
+        lib = self.ctl.player.library
+        keep = self.sb_sound.currentText()
+        self.sb_sound.clear()
+        for name in lib.names:
+            s = lib.sounds[name]
+            self.sb_sound.addItem(f"{name}  ({s.duration_s * 1e3:.0f} ms, peak {s.peak_dbfs:.0f} dBFS)", name)
+        i = self.sb_sound.findData(keep.split("  (")[0]) if keep else -1
+        self.sb_sound.setCurrentIndex(max(i, 0))
+        n = len(lib.sounds) - 1
+        self.sb_label.setText(f"{n} sound(s) in {lib.folder}" + ("" if lib.folder.is_dir() else " (folder missing)")
+                              + "".join(f"<br><small>{x}</small>" for x in lib.notes[:3]))
+
+    def _reload_sounds(self) -> None:
+        if self.ctl.player is not None:
+            self.ctl.player.library.reload()
+            self._fill_sounds()
+
+    def _play_sound(self) -> None:
+        name = self.sb_sound.currentData()
+        if not name:
+            return
+        try:
+            text = self.ctl.play_sound(name, self.sb_speaker.currentText(), self.sb_gain.value(),
+                                       self.sb_loop.isChecked())
+        except RuntimeError as e:
+            message(self, "Play", str(e), error=True)
+            return
+        self.statusBar().showMessage(f"Playing {text}", 5000)
+
+    def _stop_sounds(self) -> None:
+        self.ctl.stop_sounds()
+        self.statusBar().showMessage("Stopped all sounds", 3000)
 
     def _update_audio(self) -> None:
         st = self.ctl.audio
@@ -434,6 +504,13 @@ class AcquireWindow(QtWidgets.QMainWindow):
             parts.append(f"<span style='color:{RED}'>⚠ driver: {a['flags']}</span>")
         if a["error"]:
             parts.append(f"<span style='color:{RED}'>⚠ {a['error']}</span>")
+        if a["playing"]:
+            spk = st.cfg.speakers
+            parts.append("playing: " + ", ".join(f"{p['name']} on {spk.get(p['channel'] + 1, p['channel'] + 1)}"
+                                                 + (" (loop)" if p["loop"] else "") for p in a["playing"][:4]))
+        if any(a["limited"]):
+            parts.append(f"<span style='color:{RED}'>⚠ playback limiter hit (audio.max_level_dbfs): lower the "
+                         f"gain</span>")
         self.audio_label.setText("<br>".join(parts))
 
     # ------------------------------------------------------------------ ROIs
@@ -660,6 +737,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
             eng.arm(self.ctl.presence())
         else:
             eng.disarm()
+            self.ctl.stop_sounds()  # soundboard sounds too
         self._style_arm(on)
         self._update_outputs_label()
 
