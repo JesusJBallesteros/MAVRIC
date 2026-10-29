@@ -376,9 +376,12 @@ class AcquireWindow(QtWidgets.QMainWindow):
     def update_calibration_label(self) -> None:
         """Which cameras have a saved lens calibration."""
         from ..video.calibration import load_calibrations
+        from ..video.extrinsics import load_poses
 
+        path = resolve_path(self.rig["paths"].get("calibration_file", "config/calibration.yaml"))
         try:
-            cals = load_calibrations(resolve_path(self.rig["paths"].get("calibration_file", "config/calibration.yaml")))
+            cals = load_calibrations(path)
+            poses, _ = load_poses(path)
         except Exception as e:  # a hand-edited file that no longer parses
             self.cal_label.setText(f"calibration.yaml unreadable: {e}")
             return
@@ -386,10 +389,10 @@ class AcquireWindow(QtWidgets.QMainWindow):
         for c in self.rig["cameras"]:
             cal = cals.get(c["id"])
             parts.append(f"{c['id']} " + (f"✓ {cal.rms_px:.2f} px" if cal is not None and cal.verdict()[0] else
-                                           "✗" if cal is not None else "—"))
+                                           "✗" if cal is not None else "—") + (" ⌖" if c["id"] in poses else ""))
         self.cal_label.setText("  ·  ".join(parts))
-        self.cal_label.setToolTip("Lens calibration per camera (✓ saved and passed, ✗ saved but failed, — none), "
-                                  "in config/calibration.yaml")
+        self.cal_label.setToolTip("Lens calibration per camera (✓ saved and passed, ✗ saved but failed, — none); "
+                                  "⌖ = its position is saved too. In config/calibration.yaml")
 
     def _refresh_views(self, select: str | None = None) -> None:
         cur = select or self._view_id

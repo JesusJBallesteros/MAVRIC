@@ -115,6 +115,39 @@ an ArUco marker.
 - **Simulation:** in `mavric acquire --sim` the synthetic camera shows a simulated board moved by hand through a known
   lens. In 30 s it typically recovers the focal length within 0.3 % and the image centre within 2 px.
 
+**Camera positions** (tab 2 of the dialog, `mavric/video/extrinsics.py`):
+- **Snapshots:** the board held still where two or more cameras with a lens calibration see it (8 corners or more
+  each), captured when it has been still in every one of them and is in a new position for at least one. The cameras
+  run freely, so the board must be still; the frames need not be simultaneous.
+- **Placing the cameras:**
+  - **Board pose:** each view gives the board's pose in that camera (PnP: IPPE, then refined).
+  - **Order:** the cameras are placed one at a time from the first camera (the ROI camera). Each new camera joins
+    through the placed camera it shares the most snapshots with.
+  - **Pair fit:** each pair is fitted on all the corners both cameras saw in the same snapshots (`cv2.stereoCalibrate`
+    with the lenses fixed).
+  - **Outliers:** snapshots whose cameras disagree by more than 3 × the median (and over 1 px) are left out once and
+    the rig solved again: the board can start to move between two cameras' frames.
+- **World frame:** the origin view is the board lying face up on the floor, seen by any placed camera.
+  - **Axes:** the board's top-left outer corner is the origin, x runs along its columns, y towards its top edge and z
+    up, in mm.
+  - **Without an origin view:** the world is the first camera's own frame (x right, y down, z along its view).
+- **Checks:**
+  - **Against the other cameras:** each camera's corners are compared with the board as the camera with most corners
+    in the same snapshot places it (px).
+  - **3D:** corners are triangulated from two cameras and compared with the board's true shape after a rigid fit (mm,
+    median and p95).
+  - **PASS** needs every camera placed, ≥ 5 snapshots per joining pair, ≤ 1.5 px against the other cameras and a 3D
+    error ≤ 2 mm.
+- **Result:** `config/calibration.yaml` → `cameras: <id>: pose:` holds:
+  - `T_world_to_camera` (4 × 4) and `centre_mm`;
+  - `via` (the camera it joined through), `n_views`, `pair_rms_px` and `rms_px`.
+
+  `world:` holds the frame, the date and the 3D error. Saving replaces every camera's position: positions from
+  different solves would not share one world.
+- **Simulation:** with several synthetic cameras (`mavric acquire --sim` and a `synthetic` entry per camera in
+  `rig.yaml`), each camera gets its own lens and place around the cage, and the board moves between poses that two
+  of them see. With the lenses calibrated in tab 1, the positions come out within a few millimetres of the truth.
+
 ### FLIR / Point Grey cameras (Chameleon3)
 
 The `flir` backend (`mavric/video/flir.py`) drives FLIR / Point Grey USB3 cameras through **Spinnaker** (PySpin).
@@ -794,7 +827,8 @@ config/          rig.yaml, tags.csv, rois.json, video.yaml, outputs.yaml, sound_
 mavric/rfid/      protocol (parse, EM4100 checksum, micros unwrap), serial thread, presence tracker
 mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthetic; IDS stub), recorder (raw
                  lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest,
-                 calibration (ChArUco board, detection, lens calibration, simulated board), sheet (sticker PDF)
+                 calibration (ChArUco board, detection, lens calibration, simulated board), extrinsics (camera
+                 positions, triangulation, simulated multi-camera rig), sheet (sticker PDF)
 mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
                  sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling),
@@ -813,9 +847,9 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 
 ## Not built yet
 
-- **Camera positions and 3D** (lens calibration is built): place all cameras in one frame from simultaneous board
-  views, give each place a 3D position and draw the ROIs in every camera, check for cameras that moved; later,
-  frame-triggered capture for 3D tracking and pose.
+- **3D places and ROIs in every camera** (lens and camera-position calibration are built): give each place a 3D
+  position and draw the ROIs in every camera, check for cameras that moved; later, frame-triggered capture for 3D
+  tracking and pose.
 - **Microphone and speaker positions:** placed like the ROIs, with distances to each place, for graded emitter
   suggestions and the stimulus level at each place.
 - **Automatic call classification,** trained on the labeled sound events.

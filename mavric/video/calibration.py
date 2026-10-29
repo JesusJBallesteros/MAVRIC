@@ -565,6 +565,7 @@ class SimulatedLens:
         w, h = self.size
         R, _ = cv2.Rodrigues(np.asarray(rvec, float))
         Hn = np.column_stack([R[:, 0], R[:, 1], np.ravel(tvec)])  # board (x, y, 1) -> ray * depth
+        front = R[:, 2] @ -np.ravel(tvec) < 0  # the printed side faces the camera
         b = self.rays @ np.linalg.inv(Hn).T
         z = b[:, 2:3]
         xy = b[:, :2] / np.where(np.abs(z) < 1e-12, 1e-12, z)
@@ -572,7 +573,8 @@ class SimulatedLens:
         my = ((xy[:, 1] + self.margin_mm) * self.ppm - 0.5).reshape(h, w).astype(np.float32)
         behind = (z.reshape(h, w) <= 0)
         mx[behind] = -1e4
-        img = cv2.remap(self.texture, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        tex = self.texture if front else np.full_like(self.texture, 205)  # the back of the board is plain
+        img = cv2.remap(tex, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
         inside = cv2.remap(np.full(self.texture.shape, 255, np.uint8), mx, my, cv2.INTER_NEAREST,
                            borderMode=cv2.BORDER_CONSTANT, borderValue=0) > 0
         bg = background if background is not None else np.full((h, w), 70, np.uint8)

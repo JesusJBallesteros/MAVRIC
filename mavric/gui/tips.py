@@ -17,8 +17,8 @@ ACQUIRE = {
     "Connect camera": "Open the camera chosen on the left and start its live view. Click again to disconnect.",
     "Connect audio": "Open the audio interface set in rig.yaml (audio:): level meters, sync pulse count, "
                      "spectrograms, recording, and the Soundboard when speakers are configured",
-    "Calibrate cameras…": "Lens calibration of each connected camera with the ChArUco board (and its sticker sheet); "
-                          "saved in config/calibration.yaml",
+    "Calibrate cameras…": "Calibrate each camera's lens, then where all cameras are, with the ChArUco board (and "
+                          "its sticker sheet); saved in config/calibration.yaml",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
     # ROIs
@@ -211,6 +211,15 @@ CALIBRATE = {
     "Save": "Save this camera's lens calibration to config/calibration.yaml (other cameras are kept)",
     "Show straightened image": "Show the image with the lens distortion removed: straight edges should look "
                                "straight",
+    "Capture snapshots automatically": "Capture a snapshot whenever the board is held still where two or more "
+                                       "calibrated cameras see it, in a new position",
+    "Capture snapshot (Space)": "Capture what the cameras see now (two or more must see the board)",
+    "Clear snapshots": "Forget the snapshots and start again",
+    "Board on the floor (origin)": "Lay the board flat on the floor where a camera sees it, then press: its top-left "
+                                   "outer corner becomes the world origin (x along its columns, y towards its top "
+                                   "edge, z up)",
+    "Compute positions": "Place every camera in one frame from the snapshots (each lens must be calibrated)",
+    "Save positions": "Save the camera positions to config/calibration.yaml (the lens calibrations are kept)",
 }
 
 CALIBRATE_ATTR = {

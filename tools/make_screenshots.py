@@ -174,6 +174,21 @@ def main() -> None:
     pump(app, 0.6)
     annotate(cd, [(cd.view, 1), (group(cd, "Board"), 2), (group(cd, "Views"), 3), (group(cd, "Lens"), 4)],
              OUT / "calibrate.png", scale=0.8)
+    cd._save()
+    cd.cam_combo.setCurrentIndex(cd.cam_combo.findData("cam1"))  # the second camera's lens, off screen
+    pump(app, 26)
+    cd._calibrated(calibrate_lens(cd.collector.views, cd.spec, cd.cid))
+    cd._save()
+    from mavric.video.extrinsics import solve_rig
+
+    cd.resize(1400, 820)
+    cd.tabs.setCurrentIndex(1)
+    pump(app, 30)
+    cd._set_origin()
+    cd._solved(solve_rig(cd.spec, cd.snaps.snapshots, cd._lenses(), "cam0", cd.origin))
+    pump(app, 0.8)
+    annotate(cd, [(cd.pos_views["cam0"], 1), (group(cd, "Snapshots"), 2), (group(cd, "World origin"), 3),
+                  (group(cd, "Positions"), 4), (cd.pos_plot, 5)], OUT / "calibrate_positions.png", scale=0.75)
     cd.close()
     win.close()
     ctl.shutdown()

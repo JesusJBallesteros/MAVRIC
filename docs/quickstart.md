@@ -47,7 +47,7 @@ C:\Code\MAVRIC\
     video.yaml            camera and recording settings                       written by Video settings…
     outputs.yaml          output devices, rules, camera clip rules            written by Outputs…
     sound_types.yaml      sound event types                                   written by Types… (review)
-    calibration.yaml      lens calibration per camera                         written by Calibrate cameras…
+    calibration.yaml      each camera's lens and position                     written by Calibrate cameras…
   sessions\               one folder per recording (git ignores it)
   sounds\                 stimuli to play on the speakers (git ignores it)
   firmware\               Arduino sketches
@@ -225,7 +225,7 @@ You rarely edit these by hand:
 | `video.yaml` | Acquire → *Video settings… → Save* | camera settings and the recording format; they override `rig.yaml` |
 | `outputs.yaml` | Acquire → *Outputs… → Save & restart outputs* | output devices, rules, camera clip rules |
 | `sound_types.yaml` | Review → Sound events → *Types…* | the list of sound event types (F1–F9) |
-| `calibration.yaml` | Acquire → *Calibrate cameras… → Save* | each camera's lens: focal length, image centre, distortion, error, date; `calibration/` keeps the board corners of the views used |
+| `calibration.yaml` | Acquire → *Calibrate cameras…* → *Save* / *Save positions* | each camera's lens (focal length, image centre, distortion, error, date) and position in mm; `calibration/` keeps the board corners of the views used |
 
 Every session keeps a copy of the tag map and the ROIs it used, so later edits don't change old sessions.
 

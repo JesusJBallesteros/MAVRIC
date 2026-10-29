@@ -589,6 +589,18 @@ def cmd_calibrate(args):
                   + (f", serial {c.serial}" if c.serial else ""))
             for why in c.verdict()[1]:
                 print(f"    - {why}")
+        from .video.extrinsics import load_poses
+
+        poses, world = load_poses(path)
+        if poses:
+            print(f"camera positions ({world.get('date', '')}): " + ("world = the board on the floor"
+                                                                    if world.get("frame") == "floor" else
+                                                                    f"world = {world.get('frame')}'s frame")
+                  + (f", 3D error {world['err_3d_mm']:.2f} mm" if world.get("err_3d_mm") is not None else ""))
+            for p in poses.values():
+                c = p.centre
+                print(f"  {p.camera}: at ({c[0]:.0f}, {c[1]:.0f}, {c[2]:.0f}) mm"
+                      + (f", {p.rms_px:.2f} px vs the other cameras" if p.rms_px == p.rms_px else ""))
         return 0
     det = BoardDetector(spec)
     cams = {c["id"]: c for c in rig["cameras"]}

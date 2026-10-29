@@ -141,9 +141,10 @@ Add `--audio` and `--arm-outputs` as needed.
 
 ### Calibrate the cameras
 
-A lens calibration measures each camera's focal length, image centre and distortion. It is the first step towards
-drawing the place ROIs in every camera and, later, 3D tracking. It needs a **ChArUco board**: a checkerboard with an
-ArUco marker in every white square, so every corner can be identified even when part of the board is hidden.
+Calibration measures each camera's lens (focal length, image centre, distortion) and then where every camera is,
+in one shared frame in millimetres. It is the basis for drawing the place ROIs in every camera and, later, 3D
+tracking. It needs a **ChArUco board**: a checkerboard with an ArUco marker in every white square, so every corner can
+be identified even when part of the board is hidden.
 
 1. **The board.** Set its size in `config/rig.yaml` under `calibration: board:` (the default is 8 × 10 squares of
    39 mm). To turn a plain checkerboard into one, print stickers with `mavric calibrate sheet` (or *Sticker sheet…*
@@ -159,6 +160,20 @@ ArUco marker in every white square, so every corner can be identified even when 
    *Save*. The result goes to `config/calibration.yaml`.
 
 ![Calibrate cameras](docs/images/calibrate.png)
+
+4. **Camera positions** (tab 2, once every lens is calibrated). Hold the board still where two or more cameras see
+   it, in many places and angles. A snapshot is captured when the board has been still in every camera that sees
+   it.
+   - **Pairs:** the counts show which cameras share snapshots. Every camera must share at least 5 with another one.
+     A camera that never sees the board together with the first camera can join through another camera.
+   - **The origin:** lay the board flat on the floor where a camera sees it and press *Board on the floor (origin)*.
+     Its top-left outer corner becomes (0, 0, 0): x along its columns, y towards its top edge, z up, in mm. Without
+     an origin, positions are in the first camera's own frame.
+   - ***Compute positions*:** shows where each camera is, from above and from the side. **PASS** needs each camera
+     to agree with the others within 1.5 px and corners measured in 3D to be within 2 mm of the board's true shape.
+     Then *Save positions*.
+
+![Camera positions](docs/images/calibrate_positions.png)
 
 A calibration holds while the lens, focus, zoom and image size stay the same. After changing the image size in
 *Video settings…*, calibrate again (the dialog warns). The simulated camera (`mavric acquire --sim`) shows a
@@ -326,7 +341,7 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 | `mavric audio devices\|test\|sounds\|play` | audio interfaces, bench check, the sound library, play a sound |
 | `mavric sounds detect\|export\|import <session>` | sound-event proposals, Audacity / Raven exchange |
 | `mavric outputs list\|test\|fire` | output devices and rules from `config/outputs.yaml` |
-| `mavric calibrate sheet\|check\|lens\|show` | calibration board stickers, board check, lens calibration from images, saved calibrations |
+| `mavric calibrate sheet\|check\|lens\|show` | calibration board stickers, board check, lens calibration from images, saved lenses and camera positions |
 | `mavric import-boris <session> <file.tsv>` | BORIS labels as ground truth |
 | `mavric simulate [--audio] [--playback 20] [--sound-labels]` | a complete simulated session |
 | `mavric ports` | serial ports and FLIR / Basler cameras |
@@ -358,7 +373,7 @@ stay on your computer.
 | `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Video settings…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |
-| `calibration.yaml` | lens calibration per camera (`calibration/` holds the views used) | Acquire: *Calibrate cameras…* |
+| `calibration.yaml` | each camera's lens and position (`calibration/` holds the views used) | Acquire: *Calibrate cameras…* |
 
 Every setting is explained in [docs/quickstart.md §3](docs/quickstart.md#3-configuration).
 

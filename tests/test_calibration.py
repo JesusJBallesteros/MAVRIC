@@ -194,3 +194,123 @@ def test_calibration_dialog_on_the_simulated_camera(tmp_path):
         ctl.shutdown()
         ctl.disconnect_camera("cam0")
         win.close()
+
+
+# --------------------------------------------------------------------------- camera positions (C2)
+
+
+@pytest.fixture(scope="module")
+def sim_rig():
+    from mavric.video.extrinsics import SimulatedRig, Snapshot
+
+    rig = SimulatedRig(SPEC, {c: (640, 480) for c in ("cam0", "cam1", "cam2")}, seed=1)
+    det = BoardDetector(SPEC)
+    snaps = []
+    for _ in range(18):
+        Tb = rig.random_board()
+        snaps.append(Snapshot({c: det.detect(rig.render(c, Tb)) for c in rig.T}))
+    origin = Snapshot({c: det.detect(rig.floor_view(c)) for c in rig.T})
+    lenses = {c: rig.lens_truth(c) for c in rig.T}
+    return rig, snaps, origin, lenses
+
+
+def test_camera_positions_of_a_simulated_rig(sim_rig):
+    from mavric.video.extrinsics import angle_deg, inv_T, solve_rig
+
+    rig, snaps, origin, lenses = sim_rig
+    sol = solve_rig(SPEC, snaps, lenses, "cam0", origin)
+    assert sol.world == "floor" and set(sol.poses) == {"cam0", "cam1", "cam2"} and not sol.unplaced
+    for c, p in sol.poses.items():
+        assert np.linalg.norm(p.centre - inv_T(rig.T[c])[:3, 3]) < 2.0  # mm
+        assert angle_deg(p.T[:3, :3], rig.T[c][:3, :3]) < 0.2  # degrees
+        assert p.rms_px < 1.5
+    assert sol.err_3d_mm < 1.0
+    assert sol.poses["cam0"].via == "" and sol.poses["cam2"].via in ("cam0", "cam1")
+    # without an origin view the world is the first camera's frame
+    own = solve_rig(SPEC, snaps, lenses, "cam0")
+    assert own.world == "cam0" and np.allclose(own.poses["cam0"].T, np.eye(4))
+    d = np.linalg.norm(own.poses["cam1"].centre)  # the distance between the cameras does not depend on the frame
+    assert abs(d - np.linalg.norm(sol.poses["cam1"].centre - sol.poses["cam0"].centre)) < 1.0
+
+
+def test_triangulation_puts_a_point_where_it_is(sim_rig):
+    from mavric.video.extrinsics import solve_rig, triangulate
+
+    rig, snaps, origin, lenses = sim_rig
+    sol = solve_rig(SPEC, snaps, lenses, "cam0", origin)
+    X = np.array([[100.0, -200.0, 0.0], [250.0, -50.0, 300.0]])  # world points (mm)
+    pts = {}
+    for c in ("cam0", "cam1"):
+        T = rig.T[c]
+        p, _ = cv2.projectPoints(X, cv2.Rodrigues(T[:3, :3])[0], T[:3, 3], rig.lenses[c].K, rig.lenses[c].dist)
+        pts[c] = p.reshape(-1, 2)
+    got = triangulate(sol.poses, lenses, "cam0", "cam1", pts["cam0"], pts["cam1"])
+    assert np.abs(got - X).max() < 2.0
+
+
+def test_positions_saved_next_to_the_lenses(sim_rig, tmp_path):
+    from mavric.video.extrinsics import load_poses, save_poses, solve_rig
+
+    rig, snaps, origin, lenses = sim_rig
+    path = tmp_path / "calibration.yaml"
+    for lens in lenses.values():
+        save_lens(path, lens)
+    sol = solve_rig(SPEC, snaps, lenses, "cam0", origin)
+    save_poses(path, sol)
+    poses, world = load_poses(path)
+    assert set(poses) == {"cam0", "cam1", "cam2"} and world["frame"] == "floor"
+    assert np.allclose(poses["cam1"].T, sol.poses["cam1"].T, atol=1e-5)
+    assert set(load_calibrations(path)) == {"cam0", "cam1", "cam2"}  # lenses kept
+    two = solve_rig(SPEC, snaps, {c: lenses[c] for c in ("cam0", "cam1")}, "cam0", origin)
+    save_poses(path, two)
+    poses, _ = load_poses(path)
+    assert set(poses) == {"cam0", "cam1"}  # an old position would not match the new world: removed
+
+
+def test_positions_tab_on_simulated_cameras(tmp_path):
+    from PySide6 import QtWidgets
+
+    from mavric.acquire import simulation_controller
+    from mavric.config import load_rig
+    from mavric.gui.acquire_window import AcquireWindow
+    from mavric.gui.calibration_dialog import CalibrationDialog
+    from mavric.video.extrinsics import load_poses, solve_rig
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    rig = load_rig()
+    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp_path), "outputs_file": str(tmp_path / "o.yaml"),
+                    "calibration_file": str(tmp_path / "calibration.yaml")}
+    rig["cameras"] = [{"id": c, "backend": "synthetic", "fps": 30} for c in ("cam0", "cam1")]
+    ctl = simulation_controller(rig, seed=1)
+    win = AcquireWindow(ctl, sim=True)
+    for c in rig["cameras"]:
+        ctl.connect_camera(c)
+    try:
+        t_end = time.monotonic() + 5
+        while time.monotonic() < t_end and any(th.latest is None for th in ctl.cams.values()):
+            app.processEvents()
+        dlg = CalibrationDialog(win)
+        for cid in ctl.cams:  # skip tab 1: the simulated lenses as they are
+            save_lens(tmp_path / "calibration.yaml", dlg._rig().lens_truth(cid))
+        dlg.tabs.setCurrentIndex(1)
+        dlg._lens_status()
+        assert dlg.lens_status.text().count("✓") == 2
+        t_end = time.monotonic() + 20
+        while time.monotonic() < t_end and len(dlg.snaps.snapshots) < 4:
+            app.processEvents()
+            time.sleep(0.01)
+        assert len(dlg.snaps.snapshots) >= 4
+        dlg._set_origin()
+        assert dlg.origin is not None
+        dlg._solved(solve_rig(dlg.spec, dlg.snaps.snapshots, dlg._lenses(), "cam0", dlg.origin))
+        assert "PASS" in dlg.pos_result.text() or "FAIL" in dlg.pos_result.text()
+        assert "of its true position" in dlg.pos_result.text() and dlg.pos_plot.pixmap() is not None
+        dlg._save_positions()
+        assert set(load_poses(tmp_path / "calibration.yaml")[0]) == {"cam0", "cam1"}
+        assert "⌖" in win.cal_label.text()
+        dlg.close()
+    finally:
+        for c in list(ctl.cams):
+            ctl.disconnect_camera(c)
+        ctl.shutdown()
+        win.close()
