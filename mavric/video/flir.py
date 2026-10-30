@@ -15,13 +15,24 @@ setting            Chameleon3 / Flea3 / Blackfly (Spinnaker)   Blackfly S / newe
 frame-rate on/off  AcquisitionFrameRateEnabled,                AcquisitionFrameRateEnable
                    AcquisitionFrameRateControlEnabled
 frame-rate auto    AcquisitionFrameRateAuto, FrameRateAuto     (none)
-colour 24-bit      RGB8Packed / RGB8 / BGR8                    BGR8 / RGB8
+gamma on/off       GammaEnabled                                GammaEnable
+frame counter      FrameCounter chunk                          FrameID chunk
+colour 24-bit      RGB8Packed / RGB8 / BGR8                    BGR8 / RGB8Packed
 =================  ==========================================  ===========================
 
-Per-frame GPIO line state: the Chameleon3 has no line-status chunk (its chunk
-list is image CRC, frame counter, offsets, size, exposure, gain, black level),
-so `line_status: true` only works on models with `ExposureEndLineStatusAll`
-(e.g. Blackfly S). On the Chameleon3 the sync LED in the image is used.
+Colour sensors (e.g. Blackfly S BFS-U3-16S2C): white balance is fixed, not
+left to drift (`white_balance`: once = measured when the camera connects, the
+default; continuous; off, optionally with `balance_red` / `balance_blue`).
+Mono8 or BGR8 from a colour sensor come from the camera's ISP, which is turned
+on (IspEnable) if a format needs it; BayerRG8 is demosaiced here instead (a third
+of BGR8's USB bandwidth).
+
+Per-frame GPIO line state: neither the Chameleon3 nor the Blackfly S
+BFS-U3-16S2 has a line-status chunk (their chunk lists are image, CRC, frame
+counter / ID, offsets, size, exposure, gain, black level, and on the Blackfly S
+pixel format, timestamp, sequencer set, serial data), so `line_status: true`
+only works on models with `ExposureEndLineStatusAll`. Otherwise the sync LED in
+the image is used.
 
 Chunk mode stays on in the camera until it is unplugged, so close() turns it
 back off if it was off. Some camera / Spinnaker combinations return every
@@ -55,6 +66,7 @@ _BAYER_TO_BGR = {
     "BayerBG8": cv2.COLOR_BayerRG2BGR,
 }
 _COLOR_FORMATS = ["BGR8", "RGB8Packed", "RGB8", "BayerRG8", "BayerGR8", "BayerGB8", "BayerBG8"]
+WHITE_BALANCE = {"once": "Once", "continuous": "Continuous", "off": "Off"}  # white_balance -> BalanceWhiteAuto
 
 
 _SYS_LOCK = threading.Lock()
@@ -132,12 +144,26 @@ class FlirCamera(CameraBackend):
                 self.warnings.append(f"{name}={value!r}: {e}")
             return False
 
-    def _set_first(self, names: list[str], kind: str, value, nodemap=None) -> str | None:
+    def _set_first(self, names: list[str], kind: str, value, nodemap=None, optional: bool = False) -> str | None:
+        """Set the first of `names` that accepts the value. optional: no warning when the camera has none of them."""
         for n in names:
             if self._set(n, kind, value, nodemap, quiet=True):
                 return n
-        self.warnings.append(f"none of {names} accepted {value!r}")
+        nm = nodemap if nodemap is not None else self.nodemap
+        if not optional or any(self._node(nm, n, kind) is not None for n in names):
+            self.warnings.append(f"none of {names} accepted {value!r}")
         return None
+
+    def _set_format(self, fmt: str, quiet: bool = False) -> bool:
+        """PixelFormat, turning the ISP on when the format needs it (a colour sensor's Mono8 or BGR8)."""
+        if self._set("PixelFormat", "enum", fmt, quiet=True):
+            return True
+        if self._get("IspEnable", "bool") is False and self._set("IspEnable", "bool", True, quiet=True):
+            if self._set("PixelFormat", "enum", fmt, quiet=True):
+                return True
+        if not quiet:
+            self.warnings.append(f"PixelFormat={fmt!r}: not available")
+        return False
 
     def _get(self, name: str, kind: str, nodemap=None, default=None):
         ptr = self._node(nodemap if nodemap is not None else self.nodemap, name, kind)
@@ -217,13 +243,13 @@ class FlirCamera(CameraBackend):
         want = str(cfg.get("pixel_format", "Mono8"))
         self.pixel_format = None
         if want.upper().startswith("MONO"):
-            if self._set("PixelFormat", "enum", want):
+            if self._set_format(want):
                 self.pixel_format = want
         else:
             available = self._enum_entries("PixelFormat")
             order = [want] + [f for f in _COLOR_FORMATS if f != want]
             for f in order:
-                if (not available or f in available) and self._set("PixelFormat", "enum", f, quiet=True):
+                if (not available or f in available) and self._set_format(f, quiet=True):
                     self.pixel_format = f
                     break
             if self.pixel_format is None:
@@ -240,9 +266,10 @@ class FlirCamera(CameraBackend):
         self.link_limit_mb_s = limit / 1e6 if limit else None
 
         # fixed exposure and gain (auto exposure would change frame timing and brightness)
+        self._set("ExposureMode", "enum", "Timed", quiet=True)
         self._set("ExposureAuto", "enum", "Off")
         self._set("GainAuto", "enum", "Off")
-        self._set_first(["AcquisitionFrameRateAuto", "FrameRateAuto"], "enum", "Off")
+        self._set_first(["AcquisitionFrameRateAuto", "FrameRateAuto"], "enum", "Off", optional=True)
         self._set_first(["AcquisitionFrameRateEnable", "AcquisitionFrameRateEnabled",
                          "AcquisitionFrameRateControlEnabled"], "bool", True)
         self._set("AcquisitionFrameRate", "float", float(cfg.get("fps", 30)))
@@ -252,7 +279,8 @@ class FlirCamera(CameraBackend):
             self.warnings.append(f"exposure {exp:.0f} us is longer than the frame interval at {fps_set:.1f} fps")
         self._set("ExposureTime", "float", exp)
         self._set("Gain", "float", float(cfg.get("gain_db", 0.0)))
-        self._apply_image({"black_level": cfg.get("black_level"), "gamma": float(cfg.get("gamma") or 0.0)})
+        self._apply_image({"black_level": cfg.get("black_level"), "gamma": float(cfg.get("gamma") or 0.0),
+                           "white_balance": cfg.get("white_balance") or "once"})
 
         # resulting frame rate and size
         self.fps = float(self._get("AcquisitionResultingFrameRate", "float", default=None)
@@ -266,7 +294,7 @@ class FlirCamera(CameraBackend):
         self.timestamp_increment_ns = self._get("TimestampIncrement", "int", default=None)
 
         # chunks: the camera's own frame counter (true camera-side drops), line status where supported
-        self._chunk_counter = False
+        self._chunk_counter = ""  # the chunk's value node
         self.line_status = False
         self._chunk_was = self._get("ChunkModeActive", "bool", default=None)  # restored by close()
         self._chunk_on = False
@@ -275,14 +303,18 @@ class FlirCamera(CameraBackend):
         want_lines = bool(cfg.get("line_status", False))
         if (want_counter or want_lines) and self._set("ChunkModeActive", "bool", True, quiet=True):
             self._chunk_on = True
-            if want_counter and self._set("ChunkSelector", "enum", "FrameCounter", quiet=True):
-                self._chunk_counter = self._set("ChunkEnable", "bool", True, quiet=True)
+            counters = (("FrameCounter", "ChunkFrameCounter"), ("FrameID", "ChunkFrameID"))  # Chameleon3, Blackfly S
+            for sel, node in counters if want_counter else ():
+                if self._set("ChunkSelector", "enum", sel, quiet=True) and self._set("ChunkEnable", "bool", True,
+                                                                                     quiet=True):
+                    self._chunk_counter = node
+                    break
             if want_lines:
                 if self._set("ChunkSelector", "enum", "ExposureEndLineStatusAll", quiet=True):
                     self.line_status = self._set("ChunkEnable", "bool", True, quiet=True)
                 if not self.line_status:
-                    self.warnings.append("per-frame line status not supported by this camera "
-                                         "(Chameleon3: none); the sync LED in the image is used")
+                    self.warnings.append("per-frame line status not supported by this camera (e.g. Chameleon3, "
+                                         "Blackfly S BFS-U3-16S2: none); the sync LED in the image is used")
         elif want_lines:
             self.warnings.append("chunk mode not available: no per-frame line status")
 
@@ -326,14 +358,46 @@ class FlirCamera(CameraBackend):
                 done.add("black_level")
         if "gamma" in changes and changes["gamma"] is not None:
             g = float(changes["gamma"])
+            switch = [n for n in ("GammaEnable", "GammaEnabled") if self._node(self.nodemap, n, "bool") is not None]
             if g > 0:
-                ok = self._set("GammaEnabled", "bool", True, quiet=True) or self._get("GammaEnabled", "bool") is None
+                ok = not switch or self._set(switch[0], "bool", True, quiet=True)
                 if ok and self._set("Gamma", "float", g, quiet=True):
                     done.add("gamma")
-            else:
-                self._set("GammaEnabled", "bool", False, quiet=True)  # linear response: stable LED threshold
+            else:  # linear response: stable LED threshold
+                if not (switch and self._set(switch[0], "bool", False, quiet=True)):
+                    self._set("Gamma", "float", 1.0, quiet=True)
                 done.add("gamma")
+        if changes.get("white_balance") and self._white_balance(str(changes["white_balance"])):
+            done.add("white_balance")
         return done
+
+    def _white_balance(self, mode: str) -> bool:
+        """Colour sensors: once (measure now, then keep), continuous, or off (keep, or balance_red/balance_blue)."""
+        if self._node(self.nodemap, "BalanceWhiteAuto", "enum") is None:  # mono sensor
+            return False
+        mode = mode.lower()
+        if mode not in WHITE_BALANCE:
+            self.warnings.append(f"white_balance={mode!r}: use once, continuous or off")
+            mode = "once"
+        ok = self._set("BalanceWhiteAuto", "enum", WHITE_BALANCE[mode])
+        if mode == "off":
+            for sel, key in (("Red", "balance_red"), ("Blue", "balance_blue")):
+                if self.cfg.get(key) and self._set("BalanceRatioSelector", "enum", sel):
+                    self._set("BalanceRatio", "float", float(self.cfg[key]))
+        self.white_balance = mode if ok else None
+        return ok
+
+    def balance_ratios(self) -> dict | None:
+        """Red and blue gains relative to green (colour sensors), e.g. to keep a white balance with `off`."""
+        if getattr(self, "nodemap", None) is None or self._node(self.nodemap, "BalanceRatioSelector", "enum") is None:
+            return None
+        out = {}
+        for sel in ("Red", "Blue"):
+            if self._set("BalanceRatioSelector", "enum", sel, quiet=True):
+                v = self._get("BalanceRatio", "float")
+                if v is not None:
+                    out[sel.lower()] = round(float(v), 4)
+        return out or None
 
     def apply_live(self, changes: dict) -> set[str]:
         if self.cam is None:
@@ -343,7 +407,7 @@ class FlirCamera(CameraBackend):
             done.add("exposure_us")
         if "gain_db" in changes and self._set("Gain", "float", float(changes["gain_db"])):
             done.add("gain_db")
-        done |= self._apply_image({k: changes[k] for k in ("black_level", "gamma") if k in changes})
+        done |= self._apply_image({k: changes[k] for k in ("black_level", "gamma", "white_balance") if k in changes})
         self.cfg.update({k: changes[k] for k in done})
         return done
 
@@ -376,7 +440,7 @@ class FlirCamera(CameraBackend):
             ticks = int(img.GetTimeStamp())
             counter = None
             if self._chunk_counter:
-                counter = self._get("ChunkFrameCounter", "int", default=None)
+                counter = self._get(self._chunk_counter, "int", default=None)
             if counter is None:
                 counter = int(img.GetFrameID())
             line = int(self._get("ChunkExposureEndLineStatusAll", "int", default=0)) if self.line_status else None
@@ -412,7 +476,7 @@ class FlirCamera(CameraBackend):
         self.cam.BeginAcquisition()
         self._chunk_on = not off
         if off:
-            self._chunk_counter = self.line_status = False
+            self._chunk_counter, self.line_status = "", False
             self.warnings.append("chunk data invalid: chunk mode turned off, so drops are counted from the "
                                  "stream's frame IDs (set chunk_frame_counter: false for this camera)")
         else:
@@ -485,7 +549,9 @@ class FlirCamera(CameraBackend):
                   "link_speed": getattr(self, "link_speed", ""),
                   "link_limit_mb_s": getattr(self, "link_limit_mb_s", None),
                   "line_status": getattr(self, "line_status", False),
-                  "chunk_frame_counter": getattr(self, "_chunk_counter", False),
+                  "chunk_frame_counter": getattr(self, "_chunk_counter", "") or False,
+                  "white_balance": getattr(self, "white_balance", None),
+                  "balance_ratios": self.balance_ratios() if getattr(self, "white_balance", None) else None,
                   "timestamp_increment_ns": getattr(self, "timestamp_increment_ns", None),
                   "offset_x": self._get("OffsetX", "int", default=0) if getattr(self, "nodemap", None) else None,
                   "offset_y": self._get("OffsetY", "int", default=0) if getattr(self, "nodemap", None) else None,

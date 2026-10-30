@@ -60,7 +60,13 @@ PARAMS: dict[str, list[Param]] = {
               help="Lifts dark areas; the camera's 'Brightness'"),
         Param("gamma", "Gamma (0 = off)", "float", 0.0, live=True, lo=0, hi=4,
               help="Off keeps the response linear (stable sync-LED threshold)"),
-        Param("pixel_format", "Pixel format", "enum", "Mono8", choices=("Mono8", "BGR8")),
+        Param("pixel_format", "Pixel format", "enum", "Mono8", choices=("Mono8", "BGR8", "BayerRG8"),
+              help="Colour models: BGR8 (colour made in the camera) or BayerRG8 (made on the PC: a third of the USB "
+                   "bandwidth); Mono8 gives grey from either"),
+        Param("white_balance", "White balance (colour models)", "enum", "once", live=True,
+              choices=("once", "continuous", "off"),
+              help="once: measured when the camera connects (or now), then kept; continuous: the camera keeps "
+                   "adjusting; off: kept as it is"),
         WIDTH, HEIGHT, OFFSET_X, OFFSET_Y, RECORD,
     ],
     "basler": [FPS, EXPOSURE, GAIN, Param("pixel_format", "Pixel format", "enum", "Mono8", choices=("Mono8", "BGR8")),

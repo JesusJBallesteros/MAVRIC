@@ -135,7 +135,7 @@ cameras:
 | `device` | Serial number, from `mavric ports` or SpinView. `""` takes the first camera found, which is fine for one camera only. |
 | `fps`, `exposure_us`, `gain_db`, `pixel_format` | Starting values. *Video settings…* in Acquire changes them and saves `video.yaml`. |
 | `record` | `continuous`: the whole session. `triggered`: only clips from clip rules (*Outputs… → Camera clips*). |
-| `chunk_frame_counter`, `line_status`, `link_limit_mb_s` | FLIR details; see [reference.md](reference.md#flir--point-grey-cameras-chameleon3). |
+| `chunk_frame_counter`, `line_status`, `link_limit_mb_s`, `white_balance` | FLIR details; see [reference.md](reference.md#flir--point-grey-cameras-chameleon3-blackfly-s). |
 
 **`video`: recording format.** `record_format: raw` (default) keeps every frame lossless in about 2 GB files, to be
 compressed afterwards. `h264` compresses while recording. *Video settings…* sets the same values.

@@ -288,6 +288,10 @@ def _print_camtest(cid: str, rep: dict) -> None:
     print(f"  device   {info.get('model', '')} serial={info.get('serial', '')} fw={info.get('firmware', '')}{link}")
     print(f"  image    {info.get('width')}x{info.get('height')} {info.get('pixel_format') or ''} "
           f"configured {info.get('fps', 0):.2f} fps")
+    if info.get("white_balance"):
+        br = info.get("balance_ratios") or {}
+        print(f"  colour   white balance {info['white_balance']}"
+              + (f", red {br['red']:.3f} blue {br['blue']:.3f} (balance_red / balance_blue)" if len(br) == 2 else ""))
     print(f"  grabbed  {rep['frames']} frames, measured {rep.get('measured_fps', 0):.2f} fps, "
           f"incomplete {rep['failed_frames']}, timeouts {rep['timeouts']}, "
           f"camera drops {rep.get('camera_dropped', 'n/a')}")

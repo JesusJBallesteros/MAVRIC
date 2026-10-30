@@ -175,11 +175,11 @@ an ArUco marker.
   them in.
 - **Not covered:** sloping or vertical surfaces (a place is a horizontal surface or a box on one).
 
-### FLIR / Point Grey cameras (Chameleon3)
+### FLIR / Point Grey cameras (Chameleon3, Blackfly S)
 
 The `flir` backend (`mavric/video/flir.py`) drives FLIR / Point Grey USB3 cameras through **Spinnaker** (PySpin).
-FlyCapture2, the SDK in the 2015 Chameleon3 manual, is no longer developed. The Chameleon3 USB3 is supported by
-Spinnaker.
+FlyCapture2, the SDK in the 2015 Chameleon3 manual, is no longer developed. The Chameleon3 USB3 and the Blackfly S
+USB3 are supported by Spinnaker.
 
 **1. Install the Spinnaker SDK.** Download it from Teledyne FLIR (free account): *Spinnaker SDK, Windows x64*.
 Install it with the **USB3** driver. Check that **SpinView** shows the camera and streams.
@@ -209,8 +209,9 @@ cameras:
     fps: 30
     exposure_us: 8000
     gain_db: 0.0
-    pixel_format: Mono8  # BGR8 for colour models
-    line_status: false   # Chameleon3: no per-frame line-status chunk
+    pixel_format: Mono8  # colour models: BGR8, or BayerRG8 (colour made on the PC)
+    line_status: false   # Chameleon3, BFS-U3-16S2: no per-frame line-status chunk
+    white_balance: once  # colour models: once, continuous or off
 ```
 
 Then run `mavric camtest --cam cam0`.
@@ -265,6 +266,36 @@ All models are global shutter, which gives no motion distortion with flapping wi
 - **Optional, for frame-exact sync later:** the opto-isolated input (Line 0, pin 9, 0–30 V) accepts the Arduino's 5 V
   sync signal; connect OPTO_GND (pin 7) first. The opto output (Line 1) can send *exposure active* to the Arduino.
   Using either needs firmware/software work and is not required now.
+
+**Blackfly S BFS-U3-16S2C** (an option to try, not a default)
+- **Works with the `flir` backend:** set `backend: flir` and its serial as `device`. The SDK, PySpin and USB 3 advice
+  above apply unchanged.
+- **The camera:** Sony IMX273, 1440 × 1080, global shutter, colour, up to 226 fps at 8 bit, 240 MB image buffer.
+  The final C means colour; the BFS-U3-16S2M is the mono model.
+- **Pixel format:**
+  - `Mono8`: grey, made in the camera from the colour sensor. MAVRIC turns the camera's ISP on if needed. Same data
+    and recording size as a mono camera.
+  - `BayerRG8`: colour, made on the PC. Over USB it is as light as Mono8 (47 MB/s at 30 fps, full frame).
+  - `BGR8`: colour made in the camera, 140 MB/s at 30 fps: two of them fill most of one USB 3 controller.
+  - **Disk:** colour triples the raw video size and the encoding work compared with Mono8.
+- **White balance** (colour models): `white_balance: once` (the default) measures it when the camera connects, then
+  keeps it, so colours don't drift during a session. `continuous` lets the camera keep adjusting. `off` keeps it as
+  it is, or sets `balance_red` / `balance_blue` (gains relative to green; `mavric camtest` prints the current ones).
+  *Video settings…* changes it live.
+- **Differences handled by the backend:** SFNC names (`AcquisitionFrameRateEnable`, `GammaEnable`), the frame
+  counter from the `FrameID` chunk, timestamps in ns. `gamma: 0` keeps the response linear, as on the Chameleon3.
+- **Sync:** this model has no per-frame line-status chunk either. Its chunks are image, CRC, frame ID, offsets, size,
+  exposure, gain, black level, pixel format, timestamp, sequencer set and serial data. So the **sync LED in the
+  image** validates the timing, as with the Chameleon3. The red sync LED passes the colour models' IR-cut filter.
+- **GPIO:** 1 opto-isolated input and 1 opto-isolated output, 1 non-isolated bidirectional line and 1 non-isolated
+  input. The opto input is the one for a future hardware frame trigger. Pin numbers are in the camera's reference
+  (GPIO).
+- **Lens:** CS-mount, as on the Chameleon3 (a C-mount lens needs the 5 mm adapter). The sensor is 1/2.9", smaller
+  than the 13Y3's 1/2", so the same lens shows a narrower view: choose the focal length for that size.
+- **Checked against FLIR's camera reference with a simulated camera, not yet on a real one.** On the first real
+  camera, run `mavric camtest --cam cam0`. Look for `usb=SuperSpeed`, the pixel format and frame rate you set, no
+  incomplete images, and the white balance line for colour models. Then make a 5-minute test recording: the LED/SYNC
+  check in `mavric analyze` should say **PASS**.
 
 ## Try it without hardware
 
@@ -364,11 +395,11 @@ arduino-cli upload --fqbn arduino:avr:mega -p COM3 firmware/MultiRFID_Reader_ID2
 ### Video settings, raw recording and compression
 
 **Video settings… (acquire window, next to View).** Per camera:
-- frame rate, exposure, gain, brightness (black level), gamma, pixel format;
+- frame rate, exposure, gain, brightness (black level), gamma, pixel format, white balance (colour cameras);
 - region of interest (width, height, offsets; a smaller image allows a higher frame rate and less data);
 - continuous or clips-only recording.
 
-Exposure, gain, brightness and gamma change live (⚡); the rest reconnect the camera. *Save* writes
+Exposure, gain, brightness, gamma and white balance change live (⚡); the rest reconnect the camera. *Save* writes
 `config/video.yaml`, which overrides `rig.yaml` (`rig.yaml` keeps its comments).
 
 **Raw recording (default).** Every frame is kept bit-exact, in files of about 2 GB (adjustable):

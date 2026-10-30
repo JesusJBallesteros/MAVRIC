@@ -325,8 +325,8 @@ The opto-isolated limits apply when the camera is powered over USB (manual §6.5
 **What it gives today:** a wiring check only. The Chameleon3 cannot store the line state per frame: its GenICam chunks
 are image CRC, frame counter, offsets, size, exposure, gain and black level. So `line_status: false` stays in
 `rig.yaml`.
-- The pin becomes useful with a camera that has a line-status chunk: Basler `LineStatusAll`, FLIR Blackfly S
-  `ExposureEndLineStatusAll`.
+- The pin becomes useful with a camera that has a line-status chunk: Basler `LineStatusAll`, or FLIR Blackfly S
+  models with `ExposureEndLineStatusAll` (not the BFS-U3-16S2, whose chunks have no line state).
 - It also helps with a future hardware-trigger setup (Line0 as trigger source).
 
 ### 5.4 Future: exposure-active pulses to the Arduino (pins 8 + 7)

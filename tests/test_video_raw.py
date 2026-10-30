@@ -171,7 +171,8 @@ def test_video_settings_file_overrides_rig(tmp_path):
     assert v["compress"]["crf"] == 23 and v["compress"]["gop"] == 30  # defaults fill the rest
     keys = {p.key for p in params_for("flir")}
     assert {"fps", "exposure_us", "gain_db", "black_level", "gamma", "width", "height", "offset_x"} <= keys
-    assert {p.key for p in params_for("flir") if p.live} == {"exposure_us", "gain_db", "black_level", "gamma"}
+    assert {p.key for p in params_for("flir") if p.live} == {"exposure_us", "gain_db", "black_level", "gamma",
+                                                            "white_balance"}
 
 
 def test_flir_roi_brightness_gamma_and_live_changes(monkeypatch):

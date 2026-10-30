@@ -1,9 +1,11 @@
 """FLIR/Spinnaker backend against a fake PySpin (no camera needed).
 
-The fake models just the GenApi surface the backend uses, with two node
+The fake models just the GenApi surface the backend uses, with three node
 layouts: Chameleon3 under Spinnaker (AcquisitionFrameRateEnabled +
-AcquisitionFrameRateAuto, no line-status chunk) and Blackfly S (SFNC names,
-ExposureEndLineStatusAll chunk).
+AcquisitionFrameRateAuto, no line-status chunk), a Blackfly S with SFNC names
+and the ExposureEndLineStatusAll chunk, and the Blackfly S BFS-U3-16S2C as its
+camera reference documents it (colour sensor with ISP and white balance,
+GammaEnable, FrameID chunk, no line-status chunk).
 """
 
 import sys
@@ -161,6 +163,54 @@ def chameleon3_nodes(color=False):
     })
 
 
+class IspEnable(Node):
+    """The Blackfly S ISP switch: with the ISP off, a colour sensor offers only its Bayer formats."""
+
+    def __init__(self, fmt: Node, on: bool):
+        self.fmt = fmt
+        super().__init__("bool", on)
+
+    @property
+    def value(self):
+        return self._on
+
+    @value.setter
+    def value(self, on):
+        self._on = on
+        for e in self.fmt.entries:
+            if not e.sym.startswith("Bayer"):
+                e.readable = bool(on)
+
+
+def bfs_16s2c_nodes(isp: bool = True):
+    """Blackfly S BFS-U3-16S2C (Sony IMX273 colour, 1440 x 1080, 226 fps), node names from its camera reference."""
+    nm = chameleon3_nodes(color=True)
+    for k in ("AcquisitionFrameRateAuto", "AcquisitionFrameRateEnabled", "GammaEnabled", "ChunkFrameCounter"):
+        del nm[k]
+    nm.update({
+        "AcquisitionFrameRateEnable": Node("bool", False),
+        "AcquisitionFrameRate": Node("float", 226.0, lo=1.0, hi=226.0),
+        "ExposureMode": Node("enum", "Timed", ["Timed", "TriggerWidth"]),
+        "Width": Node("int", 1440, lo=8, hi=1440),
+        "Height": Node("int", 1080, lo=8, hi=1080),
+        "PixelFormat": Node("enum", "BayerRG8", ["Mono8", "Mono16", "BayerRG8", "BayerRG16", "RGB8Packed", "BGR8",
+                                                 "BGRa8", "YCbCr8"]),
+        "GammaEnable": Node("bool", True),
+        "Gamma": Node("float", 0.8, lo=0.25, hi=4.0),
+        "BalanceWhiteAuto": Node("enum", "Continuous", ["Off", "Once", "Continuous"]),
+        "BalanceRatioSelector": Node("enum", "Red", ["Red", "Blue"]),
+        "BalanceRatio": Node("float", 1.3, lo=0.25, hi=8.0),
+        "ChunkSelector": Node("enum", "Image", ["Image", "CRC", "FrameID", "OffsetX", "OffsetY", "Width", "Height",
+                                                "ExposureTime", "Gain", "BlackLevel", "PixelFormat", "Timestamp",
+                                                "SequencerSetActive", "SerialData"]),
+        "ChunkFrameID": Node("int", 0, lo=0, hi=2**63, writable=False),
+        "TimestampIncrement": Node("int", 1, lo=1, hi=1, writable=False),
+        "DeviceLinkThroughputLimit": Node("int", 380_000_000, lo=1_000_000, hi=500_000_000),
+    })
+    nm["IspEnable"] = IspEnable(nm["PixelFormat"], isp)
+    return nm
+
+
 def blackfly_s_nodes():
     nm = chameleon3_nodes(color=True)
     del nm["AcquisitionFrameRateAuto"], nm["AcquisitionFrameRateEnabled"]
@@ -257,7 +307,9 @@ class Camera:
             self.k += 1
         else:
             raise SpinnakerException("timeout")
-        self.nodes["ChunkFrameCounter"].value = img.fid - 1000 + 7  # camera counter differs from block id
+        for k in ("ChunkFrameCounter", "ChunkFrameID"):  # the camera's counter differs from the block id
+            if k in self.nodes:
+                self.nodes[k].value = img.fid - 1000 + 7
         if "ChunkExposureEndLineStatusAll" in self.nodes:
             self.nodes["ChunkExposureEndLineStatusAll"].value = 1 if img.fid % 2 else 0
         self.issued.append(img)
@@ -442,7 +494,7 @@ def test_bayer_fallback_is_demosaiced(pyspin):
 
 
 def test_blackfly_s_names_and_line_status_chunk(pyspin):
-    cam = Camera(nodes=blackfly_s_nodes(), model="Blackfly S BFS-U3-16S2M")
+    cam = Camera(nodes=blackfly_s_nodes(), model="Blackfly S (a model with the line-status chunk)")
     pyspin(cam)
     be = make_backend(dict(CFG, line_status=True))
     be.open()
@@ -450,6 +502,63 @@ def test_blackfly_s_names_and_line_status_chunk(pyspin):
     assert be.line_status is True
     cam.queue = [cam._make(0), cam._make(1)]
     assert [be.grab(0.1).line_status for _ in range(2)] == [0, 1]
+    be.close()
+
+
+def test_blackfly_s_16s2c_gives_mono_from_its_colour_sensor(pyspin):
+    cam = Camera(nodes=bfs_16s2c_nodes(isp=False), model="Blackfly S BFS-U3-16S2C", serial="23123456")
+    pyspin(cam)
+    be = make_backend(dict(CFG, line_status=True))
+    be.open()
+    n = cam.nodes
+    assert be.pixel_format == "Mono8" and n["IspEnable"].value is True  # Mono8 needs the camera's ISP
+    assert n["AcquisitionFrameRateEnable"].value is True and n["AcquisitionFrameRate"].value == 30.0
+    assert n["ExposureAuto"].value == "Off" and n["GainAuto"].value == "Off" and n["ExposureMode"].value == "Timed"
+    assert n["GammaEnable"].value is False  # gamma 0: linear response
+    assert n["BalanceWhiteAuto"].value == "Once"  # measured once, then fixed
+    assert "FrameID" in n["ChunkSelector"].writes and n["ChunkEnable"].value is True
+    info = be.info()
+    assert (info["width"], info["height"]) == (1440, 1080) and info["timestamp_increment_ns"] == 1
+    assert info["line_status"] is False and any("BFS-U3-16S2" in w for w in info["warnings"])
+    assert not any("none of" in w for w in info["warnings"])  # no frame-rate auto node: nothing to complain about
+    assert info["chunk_frame_counter"] == "ChunkFrameID" and info["white_balance"] == "once"
+    assert info["balance_ratios"] == {"red": 1.3, "blue": 1.3}
+    cam.queue = [cam._make(0), cam._make(1)]
+    frames = [be.grab(0.1) for _ in range(2)]
+    assert [f.hw_counter for f in frames] == [7, 8] and frames[0].image.shape == (48, 64)
+    assert frames[1].hw_ticks - frames[0].hw_ticks == pytest.approx(1e9 / 30, abs=1)
+    be.close()
+
+
+def test_blackfly_s_16s2c_colour_white_balance_and_gamma(pyspin):
+    cam = Camera(nodes=bfs_16s2c_nodes(), model="Blackfly S BFS-U3-16S2C")
+    pyspin(cam)
+    be = make_backend(dict(CFG, pixel_format="BayerRG8", white_balance="off", balance_red=1.6, balance_blue=2.1))
+    be.open()
+    n = cam.nodes
+    assert be.pixel_format == "BayerRG8"  # demosaiced on the PC: a third of BGR8's USB bandwidth
+    assert n["BalanceWhiteAuto"].value == "Off" and n["BalanceRatioSelector"].writes[:2] == ["Red", "Blue"]
+    assert n["BalanceRatio"].writes[:2] == [1.6, 2.1]
+    cam.queue = [cam._make(0)]
+    assert be.grab(0.1).image.shape == (48, 64, 3)
+    assert be.apply_live({"white_balance": "once", "gamma": 0.5}) == {"white_balance", "gamma"}
+    assert n["BalanceWhiteAuto"].value == "Once" and n["GammaEnable"].value is True and n["Gamma"].value == 0.5
+    be.close()
+    be = make_backend(dict(CFG, pixel_format="BGR8"))
+    be.open()
+    assert be.pixel_format == "BGR8"  # colour made in the camera
+    cam.queue = [cam._make(0)]
+    img = be.grab(0.1).image
+    assert img.shape == (48, 64, 3) and img[0, 0, 2] == 200
+    be.close()
+
+
+def test_mono_cameras_ignore_white_balance(pyspin):
+    cam = Camera()  # Chameleon3 mono: no BalanceWhiteAuto
+    pyspin(cam)
+    be = make_backend(dict(CFG, white_balance="continuous"))
+    be.open()
+    assert be.info()["white_balance"] is None and be.apply_live({"white_balance": "once"}) == set()
     be.close()
 
 

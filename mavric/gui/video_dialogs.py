@@ -115,8 +115,9 @@ class VideoSettingsDialog(QtWidgets.QDialog):
         bb.addButton(QtWidgets.QDialogButtonBox.StandardButton.Close)
         b_save.clicked.connect(self.save)
         bb.rejected.connect(self.reject)
-        note = QtWidgets.QLabel(f"Saved to <code>{self.path}</code> (overrides rig.yaml). Exposure, gain, brightness "
-                                "and gamma change live; size, frame rate and pixel format reconnect the camera.")
+        note = QtWidgets.QLabel(f"Saved to <code>{self.path}</code> (overrides rig.yaml). Exposure, gain, brightness, "
+                                "gamma and white balance change live; size, frame rate and pixel format reconnect the "
+                                "camera.")
         note.setWordWrap(True)
         note.setStyleSheet("color: gray")
         lay.addWidget(note)

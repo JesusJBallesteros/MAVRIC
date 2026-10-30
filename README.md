@@ -129,8 +129,8 @@ step 5), every camera shows the places it sees, coloured by who is there, here a
 ![All cameras](docs/images/acquire_grid.png)
 
 **Video settings.**
-- **Camera settings (1):** exposure, gain, brightness and gamma change live (⚡). Frame rate, image size and
-  pixel format reconnect the camera (2).
+- **Camera settings (1):** exposure, gain, brightness, gamma and (colour cameras) white balance change live (⚡).
+  Frame rate, image size and pixel format reconnect the camera (2).
 - **Recording format (3):** *raw* is the default. Every frame is kept bit-exact (lossless FFV1), in files of about
   2 GB. *H.264* records compressed straight away (about 1 GB/h, lossy).
 - **Compression defaults (4):** used by `mavric compress` and the *Compress…* buttons.
@@ -419,7 +419,7 @@ Python read it directly. Every file and column: [docs/quickstart.md §6](docs/qu
 | A reader gives no readings | work through [wiring §2.5](docs/wiring.md#25-a-reader-that-gives-no-readings) |
 | A place shows a subject that left | the reader's Tag-in-Range wire is loose or floating: check it, or add a 47 kΩ pull-down ([wiring §3](docs/wiring.md#3-arduino-mega-2560-pin-usage)) |
 | Camera not found / busy | close SpinView or pylon Viewer; `mavric ports`; `mavric camtest --cam cam0` |
-| Camera connects but shows no image | the status line says why; compare `mavric camtest --cam cam1` with `--cam all` ([reference](docs/reference.md#flir--point-grey-cameras-chameleon3)) |
+| Camera connects but shows no image | the status line says why; compare `mavric camtest --cam cam1` with `--cam all` ([reference](docs/reference.md#flir--point-grey-cameras-chameleon3-blackfly-s)) |
 | Sync check FAIL | the LED must be in view, with the SYNC box drawn over it; the pulse must last ≥ 2 frames |
 | No sync pulses on the audio input | check the D50 cable and divider ([wiring §7.2](docs/wiring.md#72-sync-cable-d50--m4-in-3)); `mavric audio test` |
 | Audio overflows | raise `audio.block` or set `latency: high` in `rig.yaml`; `mavric audio test` |
