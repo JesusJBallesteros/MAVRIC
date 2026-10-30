@@ -117,6 +117,15 @@ def run_analysis(
         P.audio.knots().to_csv(out / "audio_time_knots.csv", index=False)
     with open(out / "sync_report.json", "w") as f:
         json.dump(_jsonable({**P.sync["report"], "stream_health": P.health}), f, indent=2)
+    trigger = None
+    if any(c.get("frame_trigger") for c in sess.cameras):  # frames paired across cameras by trigger pulse (3D)
+        from .frame_trigger import frame_sets
+
+        sets, reps = frame_sets(sess, P.raw, P.sync["rfid_fits"])
+        sets.to_csv(out / "frame_sets.csv", index=False)
+        cams = [c for c in sets.columns if c.startswith("frame_")]
+        trigger = {"cameras": reps, "pulses": int(len(sets)),
+                   "complete_sets": int(sets[cams].notna().all(axis=1).sum()) if cams else 0}
     positions = None
     if sess.cameras:  # did a camera move? (its reference view against pictures spread over the recording)
         from ..video.drift import check_lines, session_check
@@ -140,6 +149,8 @@ def run_analysis(
     }
     if positions is not None:
         summary["camera_positions"] = positions
+    if trigger is not None:
+        summary["frame_trigger"] = trigger
     tb = time_budget(rfid_used, rois)
     tb.to_csv(out / "time_budget_rfid.csv")
 

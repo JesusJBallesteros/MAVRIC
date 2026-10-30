@@ -101,6 +101,15 @@ def cmd_analyze(args):
             print(f"  LED/SYNC: not validated ({led['n_led']} LED onsets, {led['n_sync']} SYNC lines)")
     for line in s.get("camera_positions") or []:
         print(f"  camera {line}")
+    ft = s.get("frame_trigger")
+    if ft:
+        for cid, r in ft["cameras"].items():
+            print(f"  frame trigger {cid}: " + (f"locked, {r['assigned']} frames at {r['fps']:.2f} fps, "
+                                                f"{r['missed_pulses']} pulse(s) without a frame, within "
+                                                f"{r['spread_ms']:.2f} ms" if r["locked"] else
+                                                f"NOT locked: {r.get('why', '')}"))
+        print(f"  frame trigger: {ft['complete_sets']} of {ft['pulses']} pulses have a frame from every camera "
+              "(analysis/frame_sets.csv)")
     au = sy.get("audio")
     if au:
         pu = au["pulses"]
@@ -194,7 +203,7 @@ def cmd_simulate(args):
     s = simulate_session(args.out, args.duration, seed=args.seed, name=args.name, label_noise_s=args.noise,
                          label_coverage_s=args.label_span, audio=args.audio or bool(args.playback) or args.sound_labels,
                          playback_every_s=args.playback or 0.0, sound_labels=args.sound_labels,
-                         places_3d=args.places_3d)
+                         places_3d=args.places_3d, frame_trigger_fps=args.frame_trigger)
     print(s.path)
 
 
@@ -834,6 +843,8 @@ def main(argv=None):
     s.add_argument("--playback", type=float, default=None, metavar="SECONDS",
                    help="with audio: play a stimulus about every SECONDS; perched subjects answer some")
     s.add_argument("--sound-labels", action="store_true", help="with audio: write the true calls as sound events")
+    s.add_argument("--frame-trigger", type=float, default=None, metavar="FPS",
+                   help="the camera exposes on the RFID board's frame trigger at FPS (its TRIG lines in the log)")
     s.add_argument("--places-3d", action="store_true",
                    help="the places, microphones and speakers in 3D: calls reach each microphone by distance, and "
                         "review grades the emitter suggestions by place")

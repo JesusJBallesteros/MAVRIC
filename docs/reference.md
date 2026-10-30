@@ -842,6 +842,7 @@ Writes `analysis/` in the session folder:
 | File | Content |
 |---|---|
 | `sync_report.json` | Clock fits (offset, drift ppm, latency), LED/SYNC match and residuals, stream health (dropped rounds, bad lines, checksum failures, unknown tags) |
+| `frame_sets.csv` | With the frame trigger: every pulse (`run`, `pulse`, `t`) and each frame-triggered camera's frame on it (`frame_<cam>`): frames taken together, for 3D |
 | `camera_positions.json` | Each camera against its reference view: 7 pictures over the recording, the level (in place, shifted, moved) and since when, whether the sync LED flashes in its box, and what acquisition measured |
 | `rfid_samples.csv`, `rfid_bouts.csv` | Tag reads on the session timeline; bouts per subject × place |
 | `comparison_bins.csv`, `accuracy_per_roi.csv`, `accuracy_per_pigeon.csv`, `confusion_seconds.csv`, `event_matching.csv` | RFID vs labels |
@@ -933,8 +934,33 @@ Sessions without video use the audio's own clock (seconds from the first sample)
    - Audio samples are mapped to session time by interpolating through the matched pulses.
    - Without the sync channel, a host-clock fit of the audio blocks is used instead.
 
-**Why not a hardware trigger:** a TTL frame trigger is not needed for place presence at this accuracy. It remains an
-option for frame-locked multi-camera capture.
+**Frame trigger** (optional, for 3D; `mavric/analysis/frame_trigger.py`). Place presence does not need it: the steps
+above put every frame on the session clock to well under a frame. 3D tracking and pose need frames taken at the same
+moment by every camera.
+- **The pulses:** with `sync: frame_trigger: source: rfid`, Acquire sends `F<fps>` to the RFID MEGA when it connects
+  (again after a board reset; `F0` when it disconnects). Timer5 makes a 1 ms pulse on D46 at the start of every
+  frame, in hardware, so the reader loop cannot delay it. Its period is a whole number of 4 µs ticks from the board's
+  crystal, e.g. 33 332 µs at 30 fps (30.0012 fps). `source: external` is your own generator.
+- **The cameras:** each with `frame_trigger: true` is set to expose on each rising edge at its trigger input
+  (`TriggerSelector FrameStart`, `TriggerSource Line0`, `TriggerActivation RisingEdge`, `TriggerOverlap ReadOut`;
+  Basler: Line1), with the frame rate setting off. It records at the trigger's rate. A camera that refuses the
+  settings runs free and says so.
+- **The log:** `<µs>,TRIGON,<period_ns>` for pulse 0, then `<µs>,TRIG,<n>` about once a second, `<µs>,TRIGOFF,<n>`
+  at a stop. The times are the pulses' own: taken in the timer interrupt, less the timer ticks since the edge, so a
+  late interrupt does not shift them. These lines are left out of the RFID clock fit.
+- **The analysis:** the trigger usually starts before the recording, so two TRIG lines of a run give the period
+  (rounded to whole ticks) and the time of every pulse. The RFID clock fit puts them on the session timeline. Each
+  frame's time from its camera's clock is rounded to the nearest pulse, after the phase common to all its frames is
+  taken out. When at least 95 % of the frames sit within a quarter period of their pulse and none share one, the
+  camera counts as **locked**: its frames take their pulses' times, and the LED offset is not applied (the frames
+  are on the RFID clock already; the LED still checks them). Otherwise the camera's own clock stays.
+  - `sync_report.json → camera.trigger`: locked or why not, the frames' spread around their pulses, pulses without a
+    frame (dropped frames), the run's period.
+  - `analysis/frame_sets.csv`: `run`, `pulse`, `t`, then `frame_<cam>` for each frame-triggered camera: the frames
+    taken together, for triangulation.
+- **Simulation:** `mavric simulate --frame-trigger 30` (one camera, offline), or synthetic cameras with
+  `frame_trigger: true` in `mavric acquire --sim` (the simulated RFID board answers `F<fps>`). In the simulated
+  session each frame's time matches its true exposure within 0.02 ms (SD).
 
 ## Session folder
 
@@ -982,8 +1008,9 @@ mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthet
                  calibration (ChArUco board, detection, lens calibration, simulated board), extrinsics (camera
                  positions, triangulation, simulated multi-camera rig), places (3D places, their outline in every
                  camera), drift (did a camera move: reference views, alignment overlay), sheet (sticker PDF)
-mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
-                 sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
+mavric/analysis/  sync, frame_trigger (frames locked to the trigger pulses, frame sets), bouts, labels I/O + BORIS,
+                 compare, sounds (sound events x RFID, answers to played sounds), plots, render (with sound and
+                 spectrogram strip), timeline, clips, pipeline
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling),
                  calibration_dialog, places_tab and devices_tab (Calibrate cameras)
 mavric/acquire.py acquisition controller (no GUI), event bus for presence changes
@@ -1001,8 +1028,9 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 
 ## Not built yet
 
-- **3D tracking** (lenses, camera positions, 3D places and the camera position check are built): frame-triggered
-  capture for 3D tracking and pose.
+- **3D tracking and pose** (lenses, camera positions, 3D places, the camera position check and the frame trigger
+  are built): triangulate DeepLabCut keypoints from the frames taken together (`frame_sets.csv`), and export
+  anipose's calibration.toml.
 - **Automatic call classification,** trained on the labeled sound events.
 - **Playback schedules:** playlists and timed stimulus sequences (sounds play by hand or from RFID rules today).
 - **Speaker level in dB SPL** (each speaker's relative output and its level at each place are built): an absolute

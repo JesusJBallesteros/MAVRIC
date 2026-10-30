@@ -137,6 +137,12 @@ step 5), every camera shows the places it sees, coloured by who is there, here a
 
 ![Video settings](docs/images/video_settings.png)
 
+**Frame trigger (for 3D).** With `sync: frame_trigger: {source: rfid, fps: 30}` in `rig.yaml` and `frame_trigger:
+true` on the cameras (or *Frame trigger (hardware)* in *Video settings…*), the RFID MEGA sends one pulse per frame on
+D46 to every camera's trigger input while the RFID reader is connected. The cameras then expose together.
+`mavric analyze` puts each frame at its pulse's time and pairs the cameras' frames in `analysis/frame_sets.csv`.
+Wiring: [docs/wiring.md §5.5](docs/wiring.md#55-optional-frame-trigger-for-3d-pins-9--7).
+
 **Recording without the window** (e.g. scheduled): `mavric acquire --headless --duration 3600 --name night01`.
 Add `--audio` and `--arm-outputs` as needed.
 
@@ -338,6 +344,7 @@ The report covers:
   matched against the RFID log;
 - RFID accuracy against your labels (sensitivity, precision, identity, κ);
 - whether a camera moved during the session ([above](#did-a-camera-move));
+- with the frame trigger: each frame at its pulse's time, and the cameras' frames paired (`frame_sets.csv`);
 - bout timing, time budgets, output firings;
 - **sounds**, once you have labeled sound events:
   - where each emitter was during each sound, by RFID and by your place labels;
@@ -479,6 +486,7 @@ MAVRIC was built around this rig; other cameras, interfaces and output devices f
 |---|---|---|
 | RFID | Arduino MEGA 2560 + 4× ID-20LA readers (125 kHz EM4100 tags) | firmware `firmware/MultiRFID_Reader_ID20LA_sync` |
 | Sync | the MEGA's D52 (LED), D50 (audio), D48 (spare) | one random pulse train, 80 ms pulses every 2–6 s |
+| Frame trigger (optional, 3D) | the MEGA's D46 → each camera's trigger input | one pulse per frame, the cameras expose together |
 | Cameras | FLIR / Point Grey Chameleon3 (USB 3) | also Basler, webcams (OpenCV), video files |
 | Audio | MOTU M4, two Rode NT5, powered speakers | any ASIO / WASAPI interface |
 | Outputs | Arduino UNO (`firmware/MAVRIC_IO`), Intan RHD controller, MATLAB | optional |

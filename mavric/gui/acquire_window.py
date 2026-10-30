@@ -855,8 +855,20 @@ class AcquireWindow(QtWidgets.QMainWindow):
             parts.append(f"RFID {r['port']}: {r['rate_hz']:.1f} lines/s, {r['lines']} lines, {r['bad']} bad"
                          + (f", last line {age:.1f} s ago" if age is not None and age > 0.5 else "")
                          + (f"  ERROR {r['error']}" if r["error"] else ""))
+        ft = st.get("frame_trigger")
+        if ft:
+            src = {"rfid": "RFID board, pin D46", "external": "external generator"}.get(ft["source"], "no source")
+            run = ft.get("running")
+            parts.append(f"frame trigger ({src}, {ft['fps']:g} fps): "
+                         + ("running" + (f", pulse {ft['pulse']}" if ft.get("pulse") else "") if run else
+                            "off" if run is False else "starts when the RFID board connects" if ft["source"] == "rfid"
+                            else "set sync: frame_trigger: source in rig.yaml" if ft["source"] == "none" else
+                            "not monitored")
+                         + ("; the board refused the rate" if ft.get("error") else ""))
         for cid, c in st["cameras"].items():
             s = f"{cid}: {c['fps']:.1f} fps" + (" (triggered clips only)" if c.get("record") == "triggered" else "")
+            if c.get("frame_trigger"):
+                s += " on the frame trigger"
             if c["recorded"] is not None:
                 s += f", recorded {c['recorded']}, dropped {c['rec_dropped']}, queue {c['queue']}"
             if c["error"]:

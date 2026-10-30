@@ -28,6 +28,8 @@ cameras:
     # link_limit_mb_s: 150  # flir: cap this camera's USB share when several cameras get incomplete images together
     line_status: false     # Chameleon3 has no per-frame line status, so the sync LED in the image is used (Blackfly S: true works)
     record: continuous     # continuous | triggered (only clips from clip rules: Outputs... -> Camera clips)
+    # frame_trigger: true  # expose on each pulse of sync: frame_trigger (below), for frame-locked 3D; fps comes from there
+    # trigger_line: Line0  # the trigger input (flir default Line0, the opto input; basler default Line1)
   # A second camera: delete "# " (the hash and the space after it) from each line below,
   # so "- id:" lines up with the "- id:" above, and give it its own serial number.
   # - id: cam1             # e.g. a camera that only records RFID-triggered clips
@@ -92,6 +94,9 @@ audio:
 sync:
   led_roi_name: SYNC  # name of the rectangle ROI over the sync LED
   led_pulse_s: 0.080  # = firmware SYNC_PULSE_US; must cover >= 2 frame intervals (warned otherwise)
+  frame_trigger:      # one pulse per frame into every camera with frame_trigger: true (3D: frames taken together)
+    source: none      # none | rfid (the RFID MEGA sends it on D46 while connected) | external (your own generator)
+    fps: 30           # the pulses per second: the frame rate of every frame-triggered camera
 
 # Camera calibration board: a ChArUco board, i.e. a checkerboard with an ArUco marker in every white square.
 # A plain checkerboard becomes one with stickers: `mavric calibrate sheet` prints them for the board below.

@@ -13,6 +13,16 @@ Output lines (unchanged format, Multiple_RFID.m still parses them):
 Added by this variant:
   <timestamp_us>,SYNC,0   sync pulse rising edge (the LED on SYNC_PINS turns on)
   <timestamp_us>,BOOT,0   once at start-up, marks a board reset
+  <timestamp_us>,TRIGON,<period_ns>   frame trigger started: the time of its first pulse
+  <timestamp_us>,TRIG,<n>             frame trigger pulse n (0, 1, 2, ...), about once a second
+  <timestamp_us>,TRIGOFF,<n>          frame trigger stopped after n pulses
+  <timestamp_us>,TRIGERR,0            a frame trigger command was refused
+The TRIG times are the pulses' own times (taken in the timer interrupt), so
+they can be a little older than the line printed before them.
+
+Commands from the PC (one ASCII line each):
+  F<fps>   frame trigger on TRIG_PIN at <fps> pulses per second (1-200, e.g. F30 or F29.97)
+  F0       frame trigger off
 
 Sync pulse: every pin in SYNC_PINS goes HIGH for SYNC_PULSE_US at random
 intervals in [SYNC_MIN_GAP_US, SYNC_MAX_GAP_US], one load per pin:
@@ -21,6 +31,13 @@ intervals in [SYNC_MIN_GAP_US, SYNC_MAX_GAP_US], one load per pin:
   D48  spare: Intan DIGITAL IN 2 or the camera GPIO input
 The random intervals make the pulse train self-identifying, so video and RFID
 can be aligned even when pulses are missed.
+
+Frame trigger (for 3D: every camera exposes on the same pulse): Timer5 makes
+a TRIG_PULSE_US pulse on TRIG_PIN (D46, OC5A) at the start of every frame, in
+hardware, so the reader loop cannot delay it. The period is a whole number of
+4 us timer ticks, from the same crystal as micros(). It runs from an F command
+until F0 or a reset; the PC sends it when it connects (rig.yaml
+sync: frame_trigger: source: rfid).
 
 Author: Jesus J. Ballesteros (base), MAVRIC sync additions 2026-10
 */
@@ -54,6 +71,12 @@ const unsigned long SYNC_PULSE_US    = 80000UL;    // LED on-time, >= 2 frame in
                                                    // e.g. 160000 for a 13 fps camera (keep rig.yaml sync.led_pulse_s equal)
 const unsigned long SYNC_MIN_GAP_US  = 2000000UL;  // rising edge to rising edge, min
 const unsigned long SYNC_MAX_GAP_US  = 6000000UL;  // and max
+
+// FRAME TRIGGER
+const uint8_t       TRIG_PIN         = 46;         // OC5A: Timer5 drives it; to every camera's trigger input
+const unsigned long TRIG_PULSE_US    = 1000UL;     // HIGH time of each pulse (cameras start on the rising edge)
+const float         TRIG_MIN_FPS     = 1.0;
+const float         TRIG_MAX_FPS     = 200.0;
 // == END USER CONFIG ==
 
 // === STATE ===
@@ -68,6 +91,17 @@ char lastTag[NUM_READERS][TAG_ID_MAX];
 bool syncHigh = false;
 unsigned long syncEdgeUs = 0;   // time of the last rising edge
 unsigned long syncGapUs = 0;    // time from syncEdgeUs to the next rising edge
+
+char cmdBuf[16];                // a command from the PC
+uint8_t cmdLen = 0;
+bool trigRunning = false;
+volatile unsigned int trigTicks = 0;      // period in 4 us ticks
+unsigned long trigPeriodNs = 0;
+volatile unsigned long trigEdges = 0;     // pulses so far
+volatile unsigned long trigLogEvery = 1;  // a TRIG line every this many pulses (about once a second)
+volatile bool trigPending = false;        // a pulse time waiting to be printed
+volatile unsigned long trigPendUs = 0;
+volatile unsigned long trigPendN = 0;
 
 Stream* readerStream(int idx) {
   switch (idx) {
@@ -109,6 +143,8 @@ void setup() {
 
   for (uint8_t i = 0; i < NUM_SYNC_PINS; ++i) pinMode(SYNC_PINS[i], OUTPUT);
   setSync(LOW);
+  pinMode(TRIG_PIN, OUTPUT);
+  digitalWrite(TRIG_PIN, LOW);
   randomSeed(analogRead(A0) ^ (micros() << 8));  // floating A0 as entropy
 
   unsigned long now = micros();
@@ -134,6 +170,30 @@ void loop() {
     syncEdgeUs = nowUs;
     syncGapUs = nextSyncGap();
     logSample(nowUs, "SYNC", 0);
+  }
+
+  // Commands from the PC
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (cmdLen) {
+        cmdBuf[cmdLen] = '\0';
+        handleCommand(cmdBuf);
+        cmdLen = 0;
+      }
+    } else if (cmdLen < sizeof(cmdBuf) - 1) {
+      cmdBuf[cmdLen++] = c;
+    }
+  }
+
+  // Frame trigger: print the pulse time the interrupt kept
+  if (trigPending) {
+    noInterrupts();
+    unsigned long us = trigPendUs, n = trigPendN;
+    trigPending = false;
+    interrupts();
+    if (n == 0) logValue(us, "TRIGON", trigPeriodNs);
+    else logValue(us, "TRIG", n);
   }
 
   // Read incoming bytes from readers with TIR high
@@ -192,6 +252,81 @@ void parseFramesInBuffer(int idx) {
     buf.remove(0, etxPos + 1);
     stxPos = buf.indexOf((char)0x02);
   }
+}
+
+void handleCommand(const char* cmd) {
+  if (cmd[0] != 'F' && cmd[0] != 'f') {
+    logValue(micros(), "TRIGERR", 0);
+    return;
+  }
+  float fps = atof(cmd + 1);
+  if (fps <= 0) {
+    stopTrigger();
+  } else if (fps >= TRIG_MIN_FPS && fps <= TRIG_MAX_FPS) {
+    startTrigger(fps);
+  } else {
+    logValue(micros(), "TRIGERR", 0);
+  }
+}
+
+// Timer5, fast PWM with TOP = ICR5 (mode 14), clock / 64 = 4 us ticks: OC5A (D46) goes HIGH at BOTTOM, the start
+// of each period, and LOW after the pulse (OCR5A).
+void startTrigger(float fps) {
+  stopTrigger();
+  unsigned long ticks = (unsigned long)(250000.0 / fps + 0.5);
+  unsigned long pulse = min(TRIG_PULSE_US / 4, ticks / 2);
+  noInterrupts();
+  TCCR5A = 0;
+  TCCR5B = 0;
+  trigTicks = (unsigned int)ticks;
+  trigPeriodNs = ticks * 4000UL;
+  trigEdges = 0;
+  trigLogEvery = max(1UL, (unsigned long)(fps + 0.5));
+  trigPending = false;
+  ICR5 = (unsigned int)(ticks - 1);
+  OCR5A = (unsigned int)(pulse - 1);
+  TCNT5 = (unsigned int)(ticks - 2);   // the first pulse two ticks from now
+  TIFR5 = _BV(TOV5);                   // no stale overflow
+  TIMSK5 = _BV(TOIE5);                 // count the pulses
+  TCCR5A = _BV(COM5A1) | _BV(WGM51);
+  TCCR5B = _BV(WGM53) | _BV(WGM52) | _BV(CS51) | _BV(CS50);  // starts it
+  interrupts();
+  trigRunning = true;
+}
+
+void stopTrigger() {
+  if (!trigRunning) return;
+  noInterrupts();
+  TIMSK5 = 0;
+  TCCR5B = 0;
+  TCCR5A = 0;  // releases D46 to digitalWrite
+  unsigned long n = trigEdges;
+  interrupts();
+  digitalWrite(TRIG_PIN, LOW);
+  trigRunning = false;
+  logValue(micros(), "TRIGOFF", n);
+}
+
+// At TOP: the counter wraps to BOTTOM, where D46 goes HIGH. The pulse time is micros() less the ticks since then,
+// so a late interrupt (e.g. behind SoftwareSerial) does not shift it.
+ISR(TIMER5_OVF_vect) {
+  unsigned int c = TCNT5;
+  unsigned long us = micros();
+  long since = (c > trigTicks / 2) ? (long)c - (long)trigTicks : (long)c;  // negative: the edge is still to come
+  unsigned long n = trigEdges++;
+  if (n % trigLogEvery == 0) {
+    trigPendUs = us - since * 4;
+    trigPendN = n;
+    trigPending = true;
+  }
+}
+
+void logValue(unsigned long ts, const char* kind, unsigned long value) {
+  Serial.print(ts);
+  Serial.print(',');
+  Serial.print(kind);
+  Serial.print(',');
+  Serial.println(value);
 }
 
 void logSample(unsigned long ts, const char* tag, int reader) {

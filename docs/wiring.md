@@ -166,6 +166,7 @@ This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 | D13 | on-board LED: lit while any reader has a tag | — | visual check only |
 | D18 (TX1), D16 (TX2), D14 (TX3), D11 (SoftSerial TX) | driven by the UARTs | **leave unconnected** | do not use as inputs |
 | A0 | random seed for the sync intervals | **leave unconnected** | must float |
+| **D46** | **frame trigger out** (Timer5): a 1 ms pulse at the start of every frame, while the PC asks for it | every frame-triggered camera's trigger input (§5.5) | optional, for frame-locked cameras (3D). Off until the PC sends `F<fps>` (`sync: frame_trigger: source: rfid`); pulses logged as `TRIG` lines |
 | D20, D21 | free, interrupt-capable | — | reserved for the future camera exposure-active input |
 | D22–D47, D49, D51, D53, other analog pins | free | — | |
 
@@ -327,7 +328,40 @@ are image CRC, frame counter, offsets, size, exposure, gain and black level. So 
 `rig.yaml`.
 - The pin becomes useful with a camera that has a line-status chunk: Basler `LineStatusAll`, or FLIR Blackfly S
   models with `ExposureEndLineStatusAll` (not the BFS-U3-16S2, whose chunks have no line state).
-- It also helps with a future hardware-trigger setup (Line0 as trigger source).
+- With the frame trigger (§5.5), the opto input takes the trigger instead.
+
+### 5.5 Optional: frame trigger for 3D (pins 9 + 7)
+
+Every frame-triggered camera exposes on the same pulse, so their frames are taken together: what 3D tracking and pose
+need. The RFID MEGA makes the pulses in hardware (Timer5), at the rate set in `rig.yaml`.
+
+**Wiring** (each camera)
+1. MEGA **GND → pin 7 (OPTO_GND)**, *before* any signal.
+2. MEGA **D46 → pin 9 (OPTO_IN, Line0)**. With several cameras, run one wire from D46 to each camera's pin 9 (a star,
+   not a chain), and one GND to each pin 7.
+- **Blackfly S:** its opto-isolated input is Line0 too; the pin numbers are in the camera's reference (GPIO).
+- **Basler ace:** the opto-isolated input is Line1 (`trigger_line: Line1` is the default for `basler`).
+- The opto input now carries the trigger, so the sync pulse from D48 (§5.3) cannot go there as well. The sync LED in
+  the image still checks the timing.
+
+**rig.yaml**
+```yaml
+sync:
+  frame_trigger: {source: rfid, fps: 30}
+cameras:
+  - {id: cam0, backend: flir, frame_trigger: true, ...}
+```
+Or tick *Frame trigger (hardware)* per camera in *Video settings…*. The frame rate then comes from the trigger.
+Keep each exposure shorter than one frame interval (Acquire warns).
+
+**What happens**
+- The MEGA sends the pulses from when Acquire connects the RFID reader until it disconnects (a board reset stops
+  them; MAVRIC starts them again). A frame-triggered camera without pulses sends no frames: the status line says it
+  is waiting for the frame trigger.
+- **Check:** with the RFID reader connected, each frame-triggered camera shows the trigger's frame rate, and the
+  status line shows *frame trigger: running*. In SpinView, Line0's *LineStatus* flickers.
+- If a camera misses pulses, the MEGA pin may not drive the opto inputs hard enough. Buffer it, for example with one
+  transistor per camera switching 5–12 V. The 2015 manual gives no input threshold or current.
 
 ### 5.4 Future: exposure-active pulses to the Arduino (pins 8 + 7)
 

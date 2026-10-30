@@ -41,6 +41,8 @@ class CameraBackend:
         self.n_timeouts = 0  # grab() calls that got no frame in time
         self.last_problem: str | None = None  # why the last frame was missing, for the status line
         self.hw_tick_hz: float | None = None
+        self.frame_trigger = bool(cfg.get("frame_trigger", False))  # expose on a pulse at the camera's input
+        self.trigger_line: str | None = None  # the input it listens on, once set up
 
     def open(self) -> None:
         raise NotImplementedError
@@ -65,6 +67,8 @@ class CameraBackend:
             "height": h,
             "hw_tick_hz": self.hw_tick_hz,
             "device": str(self.cfg.get("device", "")),
+            "frame_trigger": self.frame_trigger,
+            "trigger_line": self.trigger_line,
         }
 
     def _next_idx(self) -> int:
@@ -158,7 +162,8 @@ class FileCamera(CameraBackend):
 
 
 class SyntheticCamera(CameraBackend):
-    """Renders a simulated cage (see mavric.sim) in real time, with a drifting hardware clock."""
+    """Renders a simulated cage (see mavric.sim) in real time, with a drifting hardware clock. With frame_trigger it
+    exposes on the simulated RFID board's trigger pulses (world.trigger), and on nothing without them."""
 
     kind = "synthetic"
 
@@ -179,9 +184,32 @@ class SyntheticCamera(CameraBackend):
         self._t_start = now()
         self._counter = 0
         self._rng = np.random.default_rng(7)
+        self._pulse_next = None
+        if self.frame_trigger:
+            self.trigger_line = "Line0"
 
+    def _next_pulse(self, timeout_s: float) -> float | None:
+        """Host time of the next trigger pulse not exposed on yet; None (after waiting) while the trigger is off."""
+        trig = getattr(self.world, "trigger", None)
+        if trig is None:
+            time.sleep(min(timeout_s, 0.1))
+            self.n_timeouts += 1
+            self.last_problem = "no trigger pulse (the frame trigger is not running)"
+            return None
+        t0, period = trig
+        tw = now() - self._world_t0
+        k = int(np.ceil((tw - t0) / period))
+        if self._pulse_next is not None and self._pulse_next[0] == trig:
+            k = max(k, self._pulse_next[1])
+        self._pulse_next = (trig, k + 1)
+        return self._world_t0 + t0 + k * period
     def grab(self, timeout_s: float = 1.0) -> Frame | None:
-        due = self._t_start + self._counter / self.fps
+        if self.frame_trigger:
+            due = self._next_pulse(timeout_s)
+            if due is None:
+                return None
+        else:
+            due = self._t_start + self._counter / self.fps
         delay = due - now()
         if delay > 0:
             time.sleep(delay)
@@ -243,8 +271,20 @@ class BaslerCamera(CameraBackend):
         self._set_first(["ExposureTime", "ExposureTimeAbs"], float(self.cfg.get("exposure_us", 8000)))
         self._set("GainAuto", "Off")
         self._set_first(["Gain", "GainRaw"], float(self.cfg.get("gain_db", 0.0)))
-        self._set("AcquisitionFrameRateEnable", True)
-        self._set_first(["AcquisitionFrameRate", "AcquisitionFrameRateAbs"], float(self.cfg.get("fps", 30)))
+        if self.frame_trigger:  # expose on each rising edge at the opto input (Line1); the pulses set the rate
+            line = str(self.cfg.get("trigger_line") or "Line1")
+            self._set("TriggerSelector", "FrameStart")
+            ok = self._set("TriggerSource", line) and self._set("TriggerActivation", "RisingEdge")
+            if ok and self._set("TriggerMode", "On"):
+                self.trigger_line = line
+                self._set("AcquisitionFrameRateEnable", False)
+            else:
+                self.frame_trigger = False
+                self.warnings.append(f"frame trigger: TriggerSource {line} / TriggerMode On not accepted: the "
+                                     "camera runs free")
+        if not self.frame_trigger:
+            self._set("AcquisitionFrameRateEnable", True)
+            self._set_first(["AcquisitionFrameRate", "AcquisitionFrameRateAbs"], float(self.cfg.get("fps", 30)))
         self.line_status = False
         if chunks and self._set("ChunkModeActive", True) and self._set("ChunkSelector", "LineStatusAll"):
             self.line_status = self._set("ChunkEnable", True)
@@ -259,13 +299,12 @@ class BaslerCamera(CameraBackend):
                 self.hw_tick_hz = float(self.cam.GevTimestampTickFrequency.Value)
         except Exception:
             pass
-        try:
-            self.fps = float(self.cam.ResultingFrameRate.Value)
-        except Exception:
+        for name in ([] if self.frame_trigger else ["ResultingFrameRate", "ResultingFrameRateAbs"]):
             try:
-                self.fps = float(self.cam.ResultingFrameRateAbs.Value)
+                self.fps = float(getattr(self.cam, name).Value)
+                break
             except Exception:
-                pass
+                continue
         self.size = (int(self.cam.Width.Value), int(self.cam.Height.Value))
         self.model = self.cam.GetDeviceInfo().GetModelName()
         self.serial = self.cam.GetDeviceInfo().GetSerialNumber()

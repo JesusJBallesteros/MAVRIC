@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import bisect
 import math
+import threading
 import time
 import zlib
 from dataclasses import dataclass, field, replace
@@ -64,6 +65,7 @@ class SimWorld:
     _phase: dict = field(default_factory=dict)
     scene: "SimScene3D | None" = None  # several synthetic cameras: the cage in 3D, seen from each
     moved: dict = field(default_factory=dict)  # camera -> (dx px, dy px, degrees clockwise, from t): a bumped camera
+    trigger: tuple[float, float] | None = None  # the frame trigger running: (time of pulse 0, period), world s
 
     # ------------------------------------------------------------------ generation
     @classmethod
@@ -432,9 +434,37 @@ class RfidModel:
     latency_ms: tuple[float, float] = (2.0, 3.0)  # serial latency: base + exponential mean
     round_period_s: float = 0.125
 
+    @property
+    def k_drift(self) -> float:
+        return 1 + self.drift_ppm * 1e-6
 
-def simulate_rfid(world: SimWorld, tags: TagMap, model: RfidModel | None = None, seed: int = 1):
-    """Return (lines, truth): lines = list of (host_t, line_bytes) sorted by host_t."""
+    def micros(self, t_true: float) -> int:
+        """The board's micros() at a true time."""
+        return int(round(self.start_micros + (t_true - self.boot_offset_s) * 1e6 * self.k_drift)) % WRAP
+
+    def trigger_period(self, fps: float) -> tuple[int, float]:
+        """The frame trigger's period: (board microseconds, a whole number of 4 us ticks; true seconds)."""
+        us = int(round(250000.0 / fps)) * 4
+        return us, us / 1e6 / self.k_drift
+
+    def trigger_lines(self, t0: float, fps: float, t_end: float, lat) -> list[tuple[float, bytes]]:
+        """The firmware's lines for a frame trigger started at true time t0: TRIGON for pulse 0, then a TRIG line
+        about once a second (host arrival times from `lat`)."""
+        p_us, p_s = self.trigger_period(fps)
+        every = max(1, int(round(fps)))
+        us0 = self.micros(t0)
+        out = [(t0 + lat(), f"{us0},TRIGON,{p_us * 1000}\r\n".encode())]
+        n = every
+        while t0 + n * p_s < t_end:
+            out.append((t0 + n * p_s + lat(), f"{(us0 + n * p_us) % WRAP},TRIG,{n}\r\n".encode()))
+            n += every
+        return out
+
+
+def simulate_rfid(world: SimWorld, tags: TagMap, model: RfidModel | None = None, seed: int = 1,
+                  trigger_fps: float | None = None):
+    """Return (lines, truth): lines = list of (host_t, line_bytes) sorted by host_t. With `trigger_fps` and
+    `world.trigger`, the frame trigger's lines too."""
     m = model or RfidModel()
     rng = np.random.default_rng(seed)
     pig2tag = {p: t for t, p in tags.ids.items()}
@@ -461,8 +491,7 @@ def simulate_rfid(world: SimWorld, tags: TagMap, model: RfidModel | None = None,
             c0 = rng.uniform(a, max(a, b - 1))
             windows.append((neighbours[v.perch], tag, c0, c0 + rng.uniform(0.3, 1.0)))
 
-    def micros_at(t_true: float) -> int:
-        return int(round(m.start_micros + (t_true - m.boot_offset_s) * 1e6 * k_drift)) % WRAP
+    micros_at = m.micros
 
     def lat() -> float:
         return (m.latency_ms[0] + rng.exponential(m.latency_ms[1])) / 1000
@@ -498,6 +527,8 @@ def simulate_rfid(world: SimWorld, tags: TagMap, model: RfidModel | None = None,
         t += period_true
     for e in world.sync_edges:
         lines.append((e + lat(), f"{micros_at(e)},SYNC,0\r\n".encode()))
+    if trigger_fps and world.trigger is not None:
+        lines += m.trigger_lines(world.trigger[0], trigger_fps, world.duration_s, lat)
     lines.sort(key=lambda x: x[0])
     truth = {"drift_ppm": m.drift_ppm, "windows": windows}
     return lines, truth
@@ -509,6 +540,8 @@ class SimulatedArduino:
     def __init__(self, world: SimWorld, tags: TagMap, model: RfidModel | None = None):
         self.world, self.tags, self.model = world, tags, model or RfidModel(boot_offset_s=0.0)
         self.port = "SIM"
+        self._lock = threading.Lock()
+        self._rng = np.random.default_rng(11)
 
     def open(self) -> None:
         self.lines, _ = simulate_rfid(self.world, self.tags, self.model)
@@ -516,18 +549,45 @@ class SimulatedArduino:
         self.t0 = self.world.ensure_started()
         self.i = 0
 
+    def write(self, text: str) -> None:
+        """Commands like the firmware's: F<fps> starts the frame trigger (synthetic cameras with frame_trigger then
+        expose on its pulses), F0 stops it."""
+        cmd = text.strip()
+        if cmd[:1] not in ("F", "f"):
+            return
+        fps = float(cmd[1:] or 0)
+        t = now() - self.t0 + 0.002  # world time of the first pulse
+        lat = lambda: 0.002 + self._rng.exponential(0.001)  # noqa: E731
+        with self._lock:
+            old = self.world.trigger
+            keep = [x for x in self.lines[self.i:] if b",TRIG" not in x[1]]  # a new run replaces the old one
+            new = []
+            if old is not None:
+                n = int((t - old[0]) / old[1])
+                new.append((t + lat(), f"{self.model.micros(t)},TRIGOFF,{n}\r\n".encode()))
+                self.world.trigger = None
+            if fps > 0:
+                self.world.trigger = (t, self.model.trigger_period(fps)[1])
+                new += self.model.trigger_lines(t, fps, self.world.duration_s, lat)
+            self.lines = self.lines[: self.i] + sorted(keep + new, key=lambda x: x[0])
+
     def readline(self) -> bytes | None:
-        if self.i >= len(self.lines):
+        with self._lock:
+            if self.i >= len(self.lines):
+                line = None
+            else:
+                t_rel, line = self.lines[self.i]
+        if line is None:
             time.sleep(0.2)
             return None
-        t_rel, line = self.lines[self.i]
         delay = self.t0 + t_rel - now()
         if delay > 0.01:
             time.sleep(0.01)  # short idle timeouts, like the real serial source
             return None
         if delay > 0:
             time.sleep(delay)
-        self.i += 1
+        with self._lock:
+            self.i += 1
         return line
 
     def close(self) -> None:
@@ -556,6 +616,7 @@ def simulate_session(
     sound_labels: bool = False,
     places_3d: bool = False,
     camera_moved: tuple[float, float, float, float] | None = None,
+    frame_trigger_fps: float | None = None,
 ) -> Session:
     """Write a complete synthetic session (video, frame sidecar, RFID log, labels; optionally audio).
 
@@ -570,6 +631,10 @@ def simulate_session(
 
     The camera's reference view is the cage at the start; `camera_moved` (dx px,
     dy px, degrees clockwise, from s) bumps the camera during the session.
+
+    `frame_trigger_fps`: the RFID board's frame trigger runs from before the
+    recording (it started when the board connected), the camera exposes on its
+    pulses and the RFID log has its TRIG lines.
     """
     rng = np.random.default_rng(seed + 100)
     rig = load_rig(rig_path)
@@ -598,8 +663,11 @@ def simulate_session(
     if camera_moved is not None:
         world.moved["cam0"] = tuple(float(v) for v in camera_moved)
 
-    # RFID
-    lines, truth = simulate_rfid(world, tags, rfid_model, seed=seed + 1)
+    # RFID (and the frame trigger, started when the board connected)
+    rfid_model = rfid_model or RfidModel()
+    if frame_trigger_fps:
+        world.trigger = (-1.37, rfid_model.trigger_period(frame_trigger_fps)[1])
+    lines, truth = simulate_rfid(world, tags, rfid_model, seed=seed + 1, trigger_fps=frame_trigger_fps)
     unwrap = MicrosUnwrapper()
     w = CsvAppender(sess.file(RFID_FILE), RAW_COLUMNS, flush_s=60)
     for host_t, raw in lines:
@@ -613,6 +681,10 @@ def simulate_session(
 
     # Video + frame sidecar (camera clock drifts against host; host stamps jitter)
     k_cam = 1 + cam_drift_ppm * 1e-6
+    if frame_trigger_fps:
+        fps = frame_trigger_fps
+        t_trig, p_trig = world.trigger
+        k_first = int(np.ceil((0.0 - t_trig) / p_trig))
     vw = VideoWriter(sess.file("cam0.mp4"), fps, IMAGE_SIZE, rig["video"])
     fw = CsvAppender(sess.file("frames_cam0.csv"), FRAME_COLUMNS, flush_s=60)
     x0, y0, x1, y1 = LED_RECT
@@ -620,19 +692,27 @@ def simulate_session(
     idx = 0
     for k in range(n):
         t_exp = k / fps / k_cam  # true time of exposure (camera clock runs k_cam fast)
+        if frame_trigger_fps:
+            t_exp = t_trig + (k_first + k) * p_trig  # on the trigger's pulse
+            if t_exp >= duration_s:
+                break
         if rng.random() < 0.002:
             continue  # camera-side drop: counter gap
         img = world.render(t_exp)
         host_t = t_exp + 0.004 + rng.exponential(0.003) + (0.03 if rng.random() < 0.01 else 0)
         vw.write(img)
         led = float(img[y0:y1, x0:x1].mean())
-        fw.write([idx, idx, f"{host_t:.6f}", int(round(k / fps * 1e9)), k, int(world.led_on(t_exp)), f"{led:.2f}"])
+        ticks = int(round((t_exp * k_cam if frame_trigger_fps else k / fps) * 1e9))  # the camera's own clock
+        fw.write([idx, idx, f"{host_t:.6f}", ticks, k, int(world.led_on(t_exp)), f"{led:.2f}"])
         idx += 1
     vw.close()
     fw.close()
     sess.add_camera({"id": "cam0", "backend": "synthetic", "fps": fps, "width": IMAGE_SIZE[0],
                      "height": IMAGE_SIZE[1], "hw_tick_hz": 1e9, "video_file": "cam0.mp4",
-                     "frames_file": "frames_cam0.csv", "codec": vw.codec})
+                     "frames_file": "frames_cam0.csv", "codec": vw.codec,
+                     "frame_trigger": bool(frame_trigger_fps)})
+    if frame_trigger_fps:
+        sess.meta["frame_trigger"] = {"source": "rfid", "fps": frame_trigger_fps}
 
     # Ground truth and (noisy) manual labels
     gt = world.ground_truth(antennas)
@@ -674,7 +754,8 @@ def simulate_session(
                                for c in calls.itertuples()])
             save_sound_coverage(sess, [(0.0, duration_s)], "sim")
     sess.meta["sim"] = {"seed": seed, "rfid_drift_ppm": truth["drift_ppm"], "cam_drift_ppm": cam_drift_ppm,
-                        "n_visits": len(world.visits), "n_sync": len(world.sync_edges), "audio": audio_truth}
+                        "n_visits": len(world.visits), "n_sync": len(world.sync_edges), "audio": audio_truth,
+                        "trigger": list(world.trigger) if frame_trigger_fps else None}
     sess.finalize(duration_s, {"frames": idx, "rfid_lines": len(lines)})
     return sess
 

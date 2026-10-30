@@ -9,7 +9,19 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..core import CsvAppender, EventBus, now
-from .protocol import KIND_BAD, KIND_BOOT, KIND_NONE, KIND_TAG, RAW_COLUMNS, MicrosUnwrapper, parse_line
+from .protocol import (
+    KIND_BAD,
+    KIND_BOOT,
+    KIND_NONE,
+    KIND_TAG,
+    KIND_TRIG,
+    KIND_TRIGOFF,
+    KIND_TRIGON,
+    RAW_COLUMNS,
+    TRIGGER_KINDS,
+    MicrosUnwrapper,
+    parse_line,
+)
 
 ARDUINO_VIDS = {0x2341, 0x2A03, 0x1A86, 0x0403, 0x10C4}  # Arduino, Arduino.org, CH340, FTDI, CP210x
 
@@ -59,6 +71,11 @@ class SerialLineSource:
         self._ser = serial.Serial(port, self.baud, timeout=self.timeout_s)
         time.sleep(self.reset_wait_s)
         self._ser.reset_input_buffer()  # flush AFTER the reset wait (MultiRFID flushed before)
+
+    def write(self, text: str) -> None:
+        """Send a command to the board (e.g. F30: the frame trigger at 30 per second)."""
+        if self._ser is not None:
+            self._ser.write(text.encode("ascii"))
 
     def readline(self) -> bytes | None:
         """A complete line, or None after `timeout_s` without one (partial lines are kept)."""
@@ -171,6 +188,8 @@ class RfidReaderThread(threading.Thread):
         self.last_line_abs: float | None = None
         self.error: str | None = None
         self._rate_win: deque = deque(maxlen=64)
+        self.on_boot = None  # called when the board restarts (it then needs its commands again)
+        self.trigger: dict = {"running": False, "period_ns": None, "pulse": None, "error": False}
 
     # recording control -------------------------------------------------------
     def attach_writer(self, path, session_t0_abs: float) -> None:
@@ -246,6 +265,20 @@ class RfidReaderThread(threading.Thread):
                     ]
                 )
         self.recent.append((t, ln))
+        if ln.kind in TRIGGER_KINDS:
+            tr = self.trigger
+            if ln.kind == KIND_TRIGON:
+                tr.update(running=True, period_ns=ln.reader, pulse=0, error=False)
+            elif ln.kind == KIND_TRIG:
+                tr.update(running=True, pulse=ln.reader)
+            elif ln.kind == KIND_TRIGOFF:
+                tr.update(running=False, pulse=ln.reader)
+            else:
+                tr["error"] = True
+        if ln.kind == KIND_BOOT:
+            self.trigger.update(running=False, pulse=None)
+            if self.on_boot is not None:
+                self.on_boot()
         if ln.kind in (KIND_TAG, KIND_NONE):
             for p in self.presence.feed((seg, us), ln.kind, ln.reader, ln.tag, t):
                 if self.bus:

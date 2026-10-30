@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
-from ..rfid.protocol import KIND_SYNC
+from ..rfid.protocol import KIND_SYNC, TRIGGER_KINDS
 
 
 @dataclass
@@ -85,7 +85,7 @@ def fit_lower_envelope(device_s, host_s, window_s: float = 10.0) -> ClockFit:
 def fit_rfid_clock(raw: pd.DataFrame) -> dict[int, ClockFit]:
     """One fit per Arduino segment (a reset restarts micros)."""
     fits = {}
-    rows = raw[raw["arduino_us"].notna()]
+    rows = raw[raw["arduino_us"].notna() & ~raw["kind"].isin(TRIGGER_KINDS)]  # those carry the pulse's time
     for seg, g in rows.groupby("segment"):
         if len(g) >= 3:
             fits[int(seg)] = fit_lower_envelope(g["arduino_us"].to_numpy() / 1e6, g["host_t"].to_numpy())
@@ -216,9 +216,20 @@ def synchronise(raw: pd.DataFrame, frames: pd.DataFrame | None, cam_info: dict |
         tick_hz = camera_tick_hz(cam_info)
         cam_fit = fit_camera_clock(frames, tick_hz)
         t_frames = frame_times(frames, cam_fit, tick_hz)
+        trig = None
+        if cam_info.get("frame_trigger"):  # each frame at its trigger pulse's time (on the RFID clock)
+            from .frame_trigger import lock_frames, trigger_runs
+
+            runs = trigger_runs(raw)
+            if runs:
+                _run, _pulse, t_frames, trig = lock_frames(t_frames, runs, rfid_fits)
+            else:
+                trig = {"locked": False, "why": "no TRIG lines in the RFID log (frame trigger not running?)"}
         out["cam_fit"], out["frame_t"] = cam_fit, t_frames
         report["camera"] = {"fit": cam_fit.as_dict() if cam_fit else None, "n_frames": int(len(frames)),
                             **camera_drops(frames)}
+        if trig is not None:
+            report["camera"]["trigger"] = trig
         if len(t_frames) > 1:
             report["camera"]["measured_fps"] = float((len(t_frames) - 1) / (t_frames[-1] - t_frames[0]))
         onsets, method = led_onsets(frames, t_frames, fps)
@@ -231,7 +242,10 @@ def synchronise(raw: pd.DataFrame, frames: pd.DataFrame | None, cam_info: dict |
         m["validated"] = bool(validated)
         if validated:
             m["pass"] = bool(m["resid_med_abs_s"] < frame_s and m["resid_p95_abs_s"] < 0.1)
-            out["offset_s"] = m["offset_s"]
+            # frames locked to the trigger are already on the RFID clock: the LED only checks them
+            locked = bool(trig and trig.get("locked"))
+            out["offset_s"] = 0.0 if locked else m["offset_s"]
+            m["offset_applied"] = not locked
         report["led"] = {k: v for k, v in m.items() if k != "pairs"}
         out["led_pairs"] = m["pairs"]
     out["rfid_t"] = rfid_times(raw, rfid_fits, out["offset_s"])

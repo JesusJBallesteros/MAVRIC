@@ -47,6 +47,10 @@ EXPOSURE = Param("exposure_us", "Exposure", "float", 8000.0, live=True, lo=6, hi
 GAIN = Param("gain_db", "Gain", "float", 0.0, live=True, lo=0, hi=48, unit="dB", help="Brightens, but adds noise")
 RECORD = Param("record", "Recording", "enum", "continuous", choices=("continuous", "triggered"),
                help="triggered: only RFID-triggered clips")
+FRAME_TRIGGER = Param("frame_trigger", "Frame trigger (hardware)", "bool", False,
+                      help="Expose on each pulse at the camera's trigger input (rig.yaml sync: frame_trigger): every "
+                           "frame-triggered camera exposes at the same moments, at the trigger's rate (the frame "
+                           "rate above is then ignored)")
 WIDTH = Param("width", "Width (0 = full)", "int", 0, lo=0, hi=8192, unit="px",
               help="Region of interest: a smaller image allows a higher frame rate and less data")
 HEIGHT = Param("height", "Height (0 = full)", "int", 0, lo=0, hi=8192, unit="px")
@@ -67,10 +71,10 @@ PARAMS: dict[str, list[Param]] = {
               choices=("once", "continuous", "off"),
               help="once: measured when the camera connects (or now), then kept; continuous: the camera keeps "
                    "adjusting; off: kept as it is"),
-        WIDTH, HEIGHT, OFFSET_X, OFFSET_Y, RECORD,
+        WIDTH, HEIGHT, OFFSET_X, OFFSET_Y, RECORD, FRAME_TRIGGER,
     ],
     "basler": [FPS, EXPOSURE, GAIN, Param("pixel_format", "Pixel format", "enum", "Mono8", choices=("Mono8", "BGR8")),
-               RECORD],
+               RECORD, FRAME_TRIGGER],
     "opencv": [
         FPS,
         Param("width", "Width (0 = camera default)", "int", 0, lo=0, hi=8192, unit="px"),
@@ -80,7 +84,7 @@ PARAMS: dict[str, list[Param]] = {
         Param("gain", "Gain", "float", -1.0, live=True, lo=-1, hi=255, help="-1 = leave as is"),
         RECORD,
     ],
-    "synthetic": [FPS, RECORD],
+    "synthetic": [FPS, RECORD, FRAME_TRIGGER],
     "file": [RECORD],
 }
 

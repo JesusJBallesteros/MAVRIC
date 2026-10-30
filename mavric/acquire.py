@@ -252,17 +252,44 @@ class AcquisitionController:
             source = SerialLineSource(r["port"], int(r["baud"]), float(r.get("reset_wait_s", 2.0)))
         source.open()  # blocks ~2 s for the MEGA reset
         self.rfid = RfidReaderThread(source, self.bus, n_readers=max(4, max(self.rig["antennas"], default=4)))
+        self.rfid.on_boot = self.start_frame_trigger  # a reset stops the trigger: start it again
         self.rfid.start()
+        self.start_frame_trigger()
 
     def disconnect_rfid(self) -> None:
         if self.rfid is not None:
+            self._trigger_command(0)
             self.rfid.stop()
             self.rfid.join(timeout=2)
             self.rfid = None
 
+    # ------------------------------------------------------------------ frame trigger
+    @property
+    def frame_trigger(self) -> dict:
+        """rig.yaml sync: frame_trigger: source (none | rfid | external) and fps."""
+        ft = (self.rig.get("sync") or {}).get("frame_trigger") or {}
+        return {"source": str(ft.get("source") or "none"), "fps": float(ft.get("fps") or 30.0)}
+
+    def _trigger_command(self, fps: float) -> bool:
+        src = getattr(self.rfid, "source", None)
+        if self.frame_trigger["source"] != "rfid" or src is None or not hasattr(src, "write"):
+            return False
+        try:
+            src.write(f"F{fps:g}\n")
+            return True
+        except Exception as e:  # a closed port: the reader thread reports it
+            self.bus.publish("status", {"source": "rfid", "error": f"frame trigger command: {e}"})
+            return False
+
+    def start_frame_trigger(self) -> bool:
+        """With `source: rfid`: tell the RFID board to send the frame trigger (it does until F0 or a reset)."""
+        return self._trigger_command(self.frame_trigger["fps"])
+
     def connect_camera(self, cam_cfg: dict | None = None) -> CameraThread:
         cfg = cam_cfg or self.rig["cameras"][0]
         self.disconnect_camera(cfg.get("id", "cam0"))
+        if cfg.get("frame_trigger"):  # it records at the trigger's rate
+            cfg = {**cfg, "fps": self.frame_trigger["fps"]}
         be = make_backend(cfg, world=self.world)
         be.open()
         th = CameraThread(be, self.bus, ring_s=ring_seconds(self.rules, be.id))
@@ -413,6 +440,19 @@ class AcquisitionController:
             self.audio.attach(arec)
             self._audio_rec = arec
         warnings = self._positions_at_start(sess)
+        trig = [cid for cid, th in self.cams.items() if th.backend.frame_trigger]
+        if trig:
+            ft = self.frame_trigger
+            sess.meta["frame_trigger"] = {**ft, "cameras": trig}
+            sess.save_meta()
+            if ft["source"] == "rfid" and self.rfid is None:
+                warnings.append(f"frame trigger: {', '.join(trig)} wait for pulses from the RFID board, which is not "
+                                "connected")
+            for cid in trig:
+                exp = self.cams[cid].backend.cfg.get("exposure_us")
+                if exp and float(exp) > 0.9e6 / ft["fps"]:
+                    warnings.append(f"{cid}: exposure {float(exp):.0f} us leaves no time between trigger pulses at "
+                                    f"{ft['fps']:g} fps: frames will be missed")
         w = disk_warning(sess.path, self.cams, video_cfg(self.rig))
         if w:
             warnings.append(w)
@@ -532,7 +572,11 @@ class AcquisitionController:
                                  "timeouts": be.n_timeouts, "problem": be.last_problem,
                                  "recorded": rec.writer.n if rec else None,
                                  "rec_dropped": rec.n_dropped if rec else None,
-                                 "queue": rec.q.qsize() if rec else None, "record": th.record_mode}
+                                 "queue": rec.q.qsize() if rec else None, "record": th.record_mode,
+                                 "frame_trigger": be.frame_trigger}
+        ft = self.frame_trigger
+        if ft["source"] != "none" or any(th.backend.frame_trigger for th in self.cams.values()):
+            s["frame_trigger"] = {**ft, **(self.rfid.trigger if self.rfid is not None else {"running": None})}
         s["triggers"] = self.triggers.status() if self.triggers else []
         s["outputs"] = self.outputs.status() if self.outputs else None
         if self.audio is not None:
@@ -553,6 +597,9 @@ def stall_text(cam_status: dict, after_s: float = 2.0) -> str | None:
     why = f"{c.get('incomplete', 0)} incomplete, {c.get('timeouts', 0)} timeouts"
     if c.get("problem"):
         why += f"; last: {c['problem']}"
+    if c.get("frame_trigger"):
+        why = "waiting for the frame trigger: it comes from the RFID board once that is connected (sync: " \
+              "frame_trigger: source: rfid), or from your own generator; check the trigger wire"
     return f"NO FRAMES for {c['no_frame_s']:.0f} s ({why})"
 
 

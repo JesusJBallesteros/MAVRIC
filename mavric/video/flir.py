@@ -231,11 +231,30 @@ class FlirCamera(CameraBackend):
             raise
         self._ticks_ok: bool | None = None
 
+    def _frame_trigger(self) -> None:
+        """Expose on each rising edge at the trigger input (default Line0, the opto-isolated input). Overlap: the
+        next exposure may start while the last frame is read out, so the rate can reach the free-running one."""
+        line = str(self.cfg.get("trigger_line") or "Line0")
+        self._set("TriggerSelector", "enum", "FrameStart", quiet=True)
+        ok = self._set("TriggerSource", "enum", line)
+        self._set("TriggerActivation", "enum", "RisingEdge", quiet=True)
+        self._set("TriggerOverlap", "enum", "ReadOut", quiet=True)
+        ok = self._set("TriggerMode", "enum", "On") and ok
+        if ok:
+            self.trigger_line = line
+        else:
+            self.warnings.append(f"frame trigger: TriggerSource {line} / TriggerMode On not accepted: the camera "
+                                 "runs free")
+            self.frame_trigger = False
+            self._set("TriggerMode", "enum", "Off", quiet=True)
+
     def _configure(self) -> None:
         cfg = self.cfg
         self._set("AcquisitionMode", "enum", "Continuous")
-        self._set("TriggerMode", "enum", "Off", quiet=True)  # free-running
-        if self._get("TriggerMode", "enum") == "On":  # e.g. left on by SpinView in a saved user set
+        self._set("TriggerMode", "enum", "Off", quiet=True)  # free-running (trigger settings only change while off)
+        if self.frame_trigger:
+            self._frame_trigger()
+        elif self._get("TriggerMode", "enum") == "On":  # e.g. left on by SpinView in a saved user set
             self.warnings.append("TriggerMode is still On: the camera sends a frame only for a pulse on its "
                                  "GPIO input; turn TriggerMode off in SpinView")
 
@@ -270,11 +289,15 @@ class FlirCamera(CameraBackend):
         self._set("ExposureAuto", "enum", "Off")
         self._set("GainAuto", "enum", "Off")
         self._set_first(["AcquisitionFrameRateAuto", "FrameRateAuto"], "enum", "Off", optional=True)
-        self._set_first(["AcquisitionFrameRateEnable", "AcquisitionFrameRateEnabled",
-                         "AcquisitionFrameRateControlEnabled"], "bool", True)
-        self._set("AcquisitionFrameRate", "float", float(cfg.get("fps", 30)))
+        rate_names = ["AcquisitionFrameRateEnable", "AcquisitionFrameRateEnabled", "AcquisitionFrameRateControlEnabled"]
+        if self.frame_trigger:  # the pulses set the rate
+            self._set_first(rate_names, "bool", False, optional=True)
+            fps_set = float(cfg.get("fps", 30))
+        else:
+            self._set_first(rate_names, "bool", True)
+            self._set("AcquisitionFrameRate", "float", float(cfg.get("fps", 30)))
+            fps_set = self._get("AcquisitionFrameRate", "float", default=float(cfg.get("fps", 30))) or 30.0
         exp = float(cfg.get("exposure_us", 8000))
-        fps_set = self._get("AcquisitionFrameRate", "float", default=float(cfg.get("fps", 30))) or 30.0
         if exp > 0.9e6 / fps_set:
             self.warnings.append(f"exposure {exp:.0f} us is longer than the frame interval at {fps_set:.1f} fps")
         self._set("ExposureTime", "float", exp)
@@ -282,9 +305,10 @@ class FlirCamera(CameraBackend):
         self._apply_image({"black_level": cfg.get("black_level"), "gamma": float(cfg.get("gamma") or 0.0),
                            "white_balance": cfg.get("white_balance") or "once"})
 
-        # resulting frame rate and size
-        self.fps = float(self._get("AcquisitionResultingFrameRate", "float", default=None)
-                         or self._get("AcquisitionFrameRate", "float", default=self.fps) or self.fps)
+        # resulting frame rate and size (with the frame trigger: the pulses' rate)
+        if not self.frame_trigger:
+            self.fps = float(self._get("AcquisitionResultingFrameRate", "float", default=None)
+                             or self._get("AcquisitionFrameRate", "float", default=self.fps) or self.fps)
         self.size = (int(self._get("Width", "int", default=0)), int(self._get("Height", "int", default=0)))
 
         # Spinnaker delivers image timestamps in nanoseconds for every camera. TimestampIncrement

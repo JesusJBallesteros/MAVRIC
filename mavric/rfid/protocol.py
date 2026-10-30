@@ -6,6 +6,14 @@ Firmware lines (CRLF terminated, 500000 baud):
     <micros>,NONE,0                round with no tag at any reader (8 Hz heartbeat)
     <micros>,SYNC,0                sync LED rising edge (MAVRIC firmware)
     <micros>,BOOT,0                firmware (re)started (MAVRIC firmware)
+    <micros>,TRIGON,<period_ns>    frame trigger started: its first pulse (MAVRIC firmware)
+    <micros>,TRIG,<n>              frame trigger pulse n, about once a second
+    <micros>,TRIGOFF,<n>           frame trigger stopped after n pulses
+    <micros>,TRIGERR,0             a frame trigger command was refused
+
+The trigger lines carry the pulse's own time, which can be a little older than
+the line before them. Commands to the board: F<fps> starts the frame trigger,
+F0 stops it.
 
 All tag lines of one sampling round share the same <micros> value.
 <micros> is the Arduino's 32-bit micros() counter: it wraps every 2**32 us
@@ -23,8 +31,13 @@ KIND_NONE = "NONE"
 KIND_SYNC = "SYNC"
 KIND_BOOT = "BOOT"
 KIND_BAD = "BAD"
+KIND_TRIGON = "TRIGON"
+KIND_TRIG = "TRIG"
+KIND_TRIGOFF = "TRIGOFF"
+KIND_TRIGERR = "TRIGERR"
+TRIGGER_KINDS = (KIND_TRIGON, KIND_TRIG, KIND_TRIGOFF, KIND_TRIGERR)
 
-_SPECIAL = {"NONE": KIND_NONE, "SYNC": KIND_SYNC, "BOOT": KIND_BOOT}
+_SPECIAL = {"NONE": KIND_NONE, "SYNC": KIND_SYNC, "BOOT": KIND_BOOT, **{k: k for k in TRIGGER_KINDS}}
 
 
 @dataclass(slots=True)

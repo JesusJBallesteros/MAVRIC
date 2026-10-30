@@ -182,6 +182,7 @@ audio:
 |---|---|
 | `led_roi_name` | `SYNC`, the name of the box drawn over the LED. Leave it. |
 | `led_pulse_s` | `0.080`, the firmware's pulse length. It must last at least 2 frames: at 13 fps, lengthen the pulse in the firmware and here. |
+| `frame_trigger` | Optional, for 3D: `source: rfid` makes the RFID MEGA send one pulse per frame on D46, at `fps`, to every camera with `frame_trigger: true`. Their frames are then taken together ([wiring.md §5.5](wiring.md#55-optional-frame-trigger-for-3d-pins-9--7)). `none` by default. |
 
 **`calibration`: the camera calibration board**
 
@@ -280,6 +281,7 @@ the analysis matches them to put everything on one clock.
 | D52 | the sync LED, in view of every camera | required with cameras |
 | D50 | the audio interface's sync input, through a divider | required with audio |
 | D48 | spare: Intan DIGITAL IN, or a camera's input line | optional |
+| D46 | the frame trigger (not the sync pulse): one pulse per frame into each camera's trigger input, for 3D | optional |
 
 - **LED:** place it where every camera sees it, but not over a place. In Acquire, draw the *sync LED box* over it.
 - **Audio:** the divider and cable are in [wiring.md §7.2](wiring.md#72-sync-cable-d50--m4-in-3).

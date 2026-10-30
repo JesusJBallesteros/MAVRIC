@@ -17,6 +17,10 @@ PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "sl
 
 
 def _widget(p: Param, value):
+    if p.kind == "bool":
+        w = QtWidgets.QCheckBox()
+        w.setChecked(bool(value))
+        return w, w.toggled, lambda: bool(w.isChecked())
     if p.kind == "enum":
         w = QtWidgets.QComboBox()
         w.addItems([str(c) for c in p.choices])
