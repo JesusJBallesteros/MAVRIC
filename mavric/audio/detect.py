@@ -8,10 +8,12 @@ Measurements: band-passed level on each microphone and the arrival-time
 difference between the two (GCC-PHAT), i.e. which side of the cage the sound
 came from.
 
-Suggestions: birds RFID places on a perch during the event, ranked by
-whether their perch is near the louder / earlier microphone
-(`audio.mic_near` in rig.yaml), plus the rig itself when a played sound
-overlaps the event.
+Suggestions: birds RFID places on a perch during the event, plus the rig
+itself when a played sound overlaps the event. With the microphones and the
+places placed in 3D (the session's calibration), each bird is graded by how
+well the sound's level and arrival-time difference fit its place
+(geometry.place_fit); otherwise ranked by whether its perch is near the
+louder / earlier microphone (`audio.mic_near` in rig.yaml).
 """
 
 from __future__ import annotations
@@ -90,8 +92,12 @@ def _bandpass(x: np.ndarray, sr: float, band) -> np.ndarray:
 
 
 def measure_event(src, t0: float, t1: float, band=(300.0, 8000.0), max_lag_s: float = 0.003,
-                  min_level_diff_db: float = 3.0) -> dict:
-    """Level per microphone and arrival-time difference between the first two microphones."""
+                  min_level_diff_db: float = 3.0, floor_db: float = 30.0) -> dict:
+    """Level per microphone and arrival-time difference between the first two microphones.
+
+    The time difference is searched within `max_lag_s` (the microphones' distance / c, when known). Frequencies
+    more than `floor_db` below the strongest are left out of the correlation: whitened, the noise there would
+    swamp a tonal call's few harmonics."""
     t1 = min(t1, t0 + 10.0)
     x, _ = src.read(t0, t1, src.mic_idx)
     out = {"levels_db": {}, "louder": None, "level_diff_db": None, "delay_ms": None, "first": None}
@@ -112,9 +118,12 @@ def measure_event(src, t0: float, t1: float, band=(300.0, 8000.0), max_lag_s: fl
     nfft = 1 << int(np.ceil(np.log2(2 * len(a))))
     A, B = np.fft.rfft(a, nfft), np.fft.rfft(b, nfft)
     R = B * np.conj(A)
-    R /= np.abs(R) + 1e-12
+    mag = np.abs(R)
     f = np.fft.rfftfreq(nfft, 1 / src.sr)
-    R[(f < band[0]) | (f > band[1])] = 0
+    keep = (f >= band[0]) & (f <= band[1])
+    if keep.any():
+        keep &= mag > mag[keep].max() * 10 ** (-floor_db / 10)
+    R = np.where(keep, R / (mag + 1e-12), 0)
     cc = np.fft.irfft(R, nfft)
     m = int(max_lag_s * src.sr)
     cc = np.r_[cc[-m:], cc[: m + 1]]
@@ -130,9 +139,12 @@ def measure_event(src, t0: float, t1: float, band=(300.0, 8000.0), max_lag_s: fl
     # Tonal calls (coos) correlate again one pitch period away, so the delay is only trusted when its peak
     # clearly beats every other local maximum more than 0.3 ms away (broadband sounds: claps, wing beats).
     peaks = np.flatnonzero((cc[1:-1] > cc[:-2]) & (cc[1:-1] >= cc[2:])) + 1
-    others = [cc[p] for p in peaks if abs(p - k) > 0.0003 * src.sr]
-    unique = not others or max(others) < 0.7 * cc[k]
+    others = [p for p in peaks if abs(p - k) > 0.0003 * src.sr]
+    unique = not others or max(cc[p] for p in others) < 0.7 * cc[k]
     out["delay_reliable"] = bool(unique and abs(k - m) < m)  # a peak at the window edge is not a delay
+    # every delay the correlation allows: the peak and, for a tonal call, the ones nearly as high
+    out["delay_candidates_ms"] = ([float(lag * 1e3)] if abs(k - m) < m else []) + [
+        float((p - m) / src.sr * 1e3) for p in others if cc[p] >= 0.7 * cc[k]]
     if out["delay_reliable"] and abs(lag) * 1e3 >= 0.1:
         out["first"] = src.mics[0] if lag > 0 else src.mics[1]
     return out
@@ -149,11 +161,18 @@ def occupancy(bouts: pd.DataFrame, t0: float, t1: float) -> list[tuple[int, str,
 
 
 def suggest_emitters(meas: dict, perched: list[tuple[int, str, str]], mic_near: dict[str, list[int]],
-                     played: list[SoundEvent] | None = None) -> list[tuple[str, float, str]]:
-    """Ranked (emitter, score, reason)."""
+                     played: list[SoundEvent] | None = None,
+                     places: dict[str, float] | None = None) -> list[tuple[str, float, str]]:
+    """Ranked (emitter, score, reason).
+
+    `places` ({place: 0 to 1}, geometry.place_fit) grades each subject by how well the sound fits the place it is
+    on, and "unknown" by the best place where no tag was read; without it, a subject ranks by whether its place
+    is near the louder / earlier microphone (`mic_near`) and "unknown" comes last."""
     out: dict[str, tuple[float, str]] = {}
     for p in played or []:
         out[p.emitter] = (1.0, f"the rig played {p.note or 'a sound'}")
+    if places:
+        return _graded(out, perched, places)
     side = meas.get("louder") or meas.get("first")
     how = []
     if meas.get("louder"):
@@ -174,6 +193,25 @@ def suggest_emitters(meas: dict, perched: list[tuple[int, str, str]], mic_near: 
     ranked = sorted(((k, v[0], v[1]) for k, v in out.items()), key=lambda r: -r[1])
     ranked.append((UNKNOWN, 0.05, "no subject at a place fits" if not ranked else "none of the above"))
     return ranked
+
+
+def _graded(out: dict, perched: list[tuple[int, str, str]], places: dict[str, float]) -> list[tuple[str, float, str]]:
+    for _ant, roi, pig in perched:
+        f = places.get(roi)
+        score, reason = (0.3, f"on {roi} (not placed in 3D)") if f is None else (
+            0.05 + 0.9 * f, f"on {roi}; the sound fits it {f:.0%}")
+        if pig not in out or out[pig][0] < score:
+            out[pig] = (score, reason)
+    occupied = {roi for _, roi, _ in perched}
+    free = {r: f for r, f in places.items() if r not in occupied}
+    top = max(free, key=free.get) if free else None
+    if max(places.values()) < 0.05:
+        out[UNKNOWN] = (0.5, "no place fits the sound: a subject elsewhere?")
+    elif top is not None and free[top] > max((places.get(r, 0.0) for r in occupied), default=0.0):
+        out[UNKNOWN] = (0.05 + 0.85 * free[top], f"the sound fits {top} best ({free[top]:.0%}), where no tag was read")
+    else:
+        out[UNKNOWN] = (0.05, "none of the above")
+    return sorted(((k, v[0], v[1]) for k, v in out.items()), key=lambda r: -r[1])
 
 
 def overlapping_playback(events: list[SoundEvent], t0: float, t1: float) -> list[SoundEvent]:

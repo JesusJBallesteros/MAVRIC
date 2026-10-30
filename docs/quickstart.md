@@ -173,7 +173,7 @@ audio:
 | `format`, `split_s` | `FLAC` (lossless, smaller) or `WAV`; a new file every `split_s` seconds (default 1 h). |
 | `max_level_dbfs` | The loudest the speakers may get; louder mixes are clipped, and MAVRIC warns. |
 | `sounds_dir` | Folder of the stimuli (§3.4). |
-| `mic_near` | Which antennas (places) each microphone is next to. It ranks the emitter suggestions in review. |
+| `mic_near` | Which antennas (places) each microphone is next to. It ranks the emitter suggestions in review until the microphones and places are placed in 3D (*Calibrate cameras…*), which grades them by place instead. |
 | `temperature_c` | Room temperature. The speed of sound depends on it when the speakers check the device positions (*Calibrate cameras…*, tab 4). |
 
 **`sync`: the sync LED**

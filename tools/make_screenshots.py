@@ -199,6 +199,7 @@ def main() -> None:
     pl._end_mark()
     pl._save()
     cd.tabs.setCurrentIndex(3)  # microphones and speakers: the true speakers, microphones fitted by sound
+    cd.resize(1400, 1180)  # tall enough for the speaker level table
     dv = cd.devices
     for n, d in ctl.world.scene.devices().items():
         if d.kind == "speaker":
@@ -211,7 +212,8 @@ def main() -> None:
     dv._apply_fit()
     pump(app, 0.8)
     annotate(cd, [(dv.space, 1), (group(cd, "Microphones and speakers (mm, degrees)"), 2),
-                  (group(cd, "Check with sound"), 3), (group(cd, "Places as the microphones hear them"), 4)],
+                  (group(cd, "Check with sound"), 3), (group(cd, "Places as the microphones hear them"), 4),
+                  (group(cd, "Speaker level at each place"), 5)],
              OUT / "calibrate_devices.png", scale=0.75)
     dv._save()
     cd.close()
@@ -249,7 +251,7 @@ def main() -> None:
     from mavric.gui.review_window import ReviewWindow
     from mavric.sim import simulate_session
 
-    sess = simulate_session(tmp / "sessions", duration_s=240, seed=7, audio=True, label_noise_s=0.15,
+    sess = simulate_session(tmp / "sessions", duration_s=240, seed=7, audio=True, places_3d=True, label_noise_s=0.15,
                             label_coverage_s=150, name="demo", rig_path=rig_file)
     win = ReviewWindow(sess, "demo")
     win.resize(1600, 1380)

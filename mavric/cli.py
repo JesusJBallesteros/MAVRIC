@@ -191,7 +191,8 @@ def cmd_simulate(args):
 
     s = simulate_session(args.out, args.duration, seed=args.seed, name=args.name, label_noise_s=args.noise,
                          label_coverage_s=args.label_span, audio=args.audio or bool(args.playback) or args.sound_labels,
-                         playback_every_s=args.playback or 0.0, sound_labels=args.sound_labels)
+                         playback_every_s=args.playback or 0.0, sound_labels=args.sound_labels,
+                         places_3d=args.places_3d)
     print(s.path)
 
 
@@ -615,7 +616,25 @@ def cmd_calibrate(args):
             for d in devs.values():
                 p = d.position
                 print(f"  {d.name}: {d.kind} at ({p[0]:.0f}, {p[1]:.0f}, {p[2]:.0f}) mm, aim {d.aim[0]:.0f}° / "
-                      f"{d.aim[1]:.0f}°, {d.how}")
+                      f"{d.aim[1]:.0f}°, {d.how}" + (f", level {d.level_db:+.1f} dB" if d.level_db is not None else ""))
+            from .audio.geometry import place_fingerprints, place_sources, speaker_levels, speed_of_sound
+            from .config import RoiSet
+
+            rs = RoiSet.load(resolve_path(rig["paths"]["rois_file"]))
+            src = place_sources(rs)
+            mics = [d for d in devs.values() if d.kind == "mic"][:2]
+            spk = [d for d in devs.values() if d.kind == "speaker"]
+            if len(mics) == 2 and src:
+                c = speed_of_sound(float((rig.get("audio") or {}).get("temperature_c", 20.0)))
+                print(f"places as the microphones hear them ({mics[1].name} minus {mics[0].name}):")
+                for n, (a, b, sa, sb) in place_fingerprints(mics, rs, c).items():
+                    print(f"  {n}: {a:+.2f} ± {sa:.2f} ms, {b:+.1f} ± {sb:.1f} dB")
+            if spk and src:
+                lv = speaker_levels(spk, src)
+                print(f"speaker level at each place (dB re 1 m in front of {spk[0].name}; angle off each axis):")
+                for p in src:
+                    print(f"  {p}: " + ", ".join(f"{s.name} {lv[s.name][p][2]:+.1f} ({lv[s.name][p][1]:.0f}°)"
+                                                 for s in spk))
         return 0
     det = BoardDetector(spec)
     cams = {c["id"]: c for c in rig["cameras"]}
@@ -813,6 +832,9 @@ def main(argv=None):
     s.add_argument("--playback", type=float, default=None, metavar="SECONDS",
                    help="with audio: play a stimulus about every SECONDS; perched subjects answer some")
     s.add_argument("--sound-labels", action="store_true", help="with audio: write the true calls as sound events")
+    s.add_argument("--places-3d", action="store_true",
+                   help="the places, microphones and speakers in 3D: calls reach each microphone by distance, and "
+                        "review grades the emitter suggestions by place")
     s.set_defaults(fn=cmd_simulate)
 
     sub.add_parser("ports", help="list serial ports and Basler / FLIR cameras").set_defaults(fn=cmd_ports)

@@ -107,7 +107,8 @@ SOUND = {
     "Start (S)": "Mark the start of a sound event at the playhead",
     "End (E)": "Mark the end: creates the event with the chosen type and emitter",
     "Delete": "Delete the selected sound event (Shift+Del)",
-    "Use top suggestion (A)": "Set the emitter to the first suggestion (from mic levels and RFID place occupancy)",
+    "Use top suggestion (A)": "Set the emitter to the first suggestion (from how the two microphones heard it and "
+                              "RFID place occupancy)",
     "Detect proposals": "Find candidate sound events automatically (band energy above the noise floor)",
     "Accept (Y)": "Turn the proposal at or after the playhead into an event",
     "Reject (R)": "Drop the proposal and go to the next one",
@@ -124,7 +125,8 @@ SOUND_ATTR = {
     "type_box": "Event type for new events, or of the selected event (F1-F9)",
     "emitter_box": "Who made the sound: a tagged subject, the rig (system:<speaker>) or unknown (Alt+1-9, Alt+0)",
     "listen_box": "Microphone to listen to (both = stereo)",
-    "sugg_label": "Ranked emitter suggestions and why",
+    "sugg_label": "Ranked emitter suggestions and why; with the microphones and places in 3D, how well the sound "
+                  "fits each place",
     "info": "Events, proposals and reviewed time; the selected event",
 }
 

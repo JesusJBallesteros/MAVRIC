@@ -12,7 +12,7 @@ import bisect
 import math
 import time
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import cv2
@@ -22,7 +22,7 @@ import pandas as pd
 from .config import CATEGORICAL, Roi, RoiSet, TagMap, load_rig
 from .core import CsvAppender, now
 from .rfid.protocol import RAW_COLUMNS, WRAP, MicrosUnwrapper, parse_line
-from .session import COVERAGE_FILE, LABELS_FILE, RFID_FILE, Session
+from .session import CALIBRATION_FILE, COVERAGE_FILE, LABELS_FILE, RFID_FILE, Session
 from .video.recorder import FRAME_COLUMNS, VideoWriter
 
 IMAGE_SIZE = (640, 480)
@@ -39,6 +39,7 @@ LED_Z_MM = 300.0
 BIRD_MM = (100.0, 70.0, 45.0)  # 3D scene: body length, width, height of the body's centre above what it stands on
 PLAN_MM_PER_PX = 1.25  # 3D scene: the plan picture laid on the floor
 PLAN_CENTRE_MM = (156.0, -195.0)  # where the simulated rig's cameras look
+LEVEL_DB = {"micB": -2.0, "spk4": -3.0}  # 3D scene: micB records 2 dB quieter than micA, spk4 plays 3 dB quieter
 SYNC_PULSE_S = 0.080
 
 
@@ -206,7 +207,7 @@ class SimWorld:
         return self.scene
 
     def roi_set(self, antennas: dict[int, str]) -> RoiSet:
-        if self.scene is not None:
+        if self.scene is not None and self.scene.cams:
             return self.scene.roi_set(antennas)
         rois = []
         for k, (x0, y0, x1, y1) in PERCH_RECTS.items():
@@ -236,15 +237,16 @@ class SimScene3D:
     at PERCH_Z_MM, the sync LED on a post at LED_Z_MM and the pigeons standing on
     the floor or on a bar. Its default ROIs are the places' surfaces as the ROI
     camera sees them; placed at the true heights, they sit on the perches in
-    every camera.
+    every camera. Without a rig (offline sessions) it has no cameras: it gives
+    the places, the microphones and the speakers for the sound.
     """
 
-    def __init__(self, world: SimWorld, rig, roi_camera: str):
+    def __init__(self, world: SimWorld, rig=None, roi_camera: str | None = None):
         from .video.places import CameraModel
 
         self.world, self.rig, self.roi_camera = world, rig, roi_camera
         self.cams = {cid: CameraModel(cid, lens.K, np.asarray(lens.dist, float).ravel(), rig.T[cid], tuple(lens.size))
-                     for cid, lens in rig.lenses.items()}
+                     for cid, lens in rig.lenses.items()} if rig is not None else {}
         w, h = world.image_size
         self.floor = self.plan([(20, 20), (w - 20, 20), (w - 20, h - 20), (20, h - 20)], 0.0)
         self.perches = {k: self.plan([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], PERCH_Z_MM[k])
@@ -267,7 +269,7 @@ class SimScene3D:
     def devices(self) -> dict:
         """Where the simulated microphones and speakers really are: micA and micB above the cage's long midline at a
         quarter and three quarters of its length, each facing a different side; a speaker beyond each corner,
-        aimed at the middle. Mostly outside the cameras' views."""
+        aimed at the middle. Mostly outside the cameras' views. Their levels (LEVEL_DB) are true too."""
         from .audio.geometry import Device, aim_at
 
         (x0, y0), (x1, y1) = self.floor.min(axis=0)[:2], self.floor.max(axis=0)[:2]
@@ -276,9 +278,10 @@ class SimScene3D:
         for name, (x, y) in zip(("spk1", "spk2", "spk3", "spk4"),
                                 ((x0 - 120, y1 + 120), (x1 + 120, y1 + 120), (x0 - 120, y0 - 120), (x1 + 120, y0 - 120))):
             p = np.array([x, y, 300.0])
-            out[name] = Device(name, "speaker", p, aim_at(p, mid))
+            out[name] = Device(name, "speaker", p, aim_at(p, mid), level_db=LEVEL_DB.get(name, 0.0))
         for name, u, az in (("micA", 0.25, -90.0), ("micB", 0.75, 90.0)):
-            out[name] = Device(name, "mic", np.array([x0 + u * (x1 - x0), mid[1], 650.0]), (az, -35.0))
+            out[name] = Device(name, "mic", np.array([x0 + u * (x1 - x0), mid[1], 650.0]), (az, -35.0),
+                               level_db=LEVEL_DB.get(name, 0.0))
         return out
 
     def surface(self, perch: int) -> np.ndarray:
@@ -300,6 +303,17 @@ class SimScene3D:
         x, y = float(p[0, 0]), float(p[0, 1])
         rois.append(Roi("SYNC", [(x - r, y - r), (x + r, y - r), (x + r, y + r), (x - r, y + r)], kind="sync"))
         return RoiSet(rois, cam.size)
+
+    def placed(self, rs: RoiSet) -> RoiSet:
+        """ROIs drawn on the plan (the one-camera picture) placed in 3D at their true heights."""
+        out = []
+        for r in rs.rois:
+            z = LED_Z_MM if r.kind == "sync" else PERCH_Z_MM.get(r.antenna)
+            if z is not None:
+                X = self.plan(r.points, z)
+                r = replace(r, plane_z_mm=z, points3d=[tuple(round(float(v), 2) for v in p) for p in X])
+            out.append(r)
+        return RoiSet(out, rs.image_size)
 
     def bird(self, pigeon: str, t: float) -> np.ndarray:
         """The pigeon's body centre in the world (mm)."""
@@ -528,12 +542,18 @@ def simulate_session(
     audio_sync: bool = True,
     playback_every_s: float = 0.0,
     sound_labels: bool = False,
+    places_3d: bool = False,
 ) -> Session:
     """Write a complete synthetic session (video, frame sidecar, RFID log, labels; optionally audio).
 
     With audio, `playback_every_s` plays a stimulus about that often (logged in
     audio_playback.csv), and `sound_labels` writes the true calls as reviewed
     sound events, as if an annotator had labeled the whole session.
+
+    `places_3d`: the cage in 3D (SimScene3D, no cameras): the places placed at
+    their true heights, the microphones and speakers at their true positions
+    in the session's calibration.yaml, and the calls and stimuli reaching each
+    microphone by distance and its pickup instead of the near / far model.
     """
     rng = np.random.default_rng(seed + 100)
     rig = load_rig(rig_path)
@@ -544,8 +564,18 @@ def simulate_session(
     world = SimWorld.random(tags.pigeons, {p: tags.color(p) for p in tags.pigeons}, duration_s, seed)
     antennas = rig["antennas"]
     rois = world.roi_set(antennas)
+    scene = None
+    if places_3d:
+        world.scene = scene = SimScene3D(world)
+        rois = scene.placed(rois)
     anchor = {"perf_s": 0.0, "utc_ns": time.time_ns()}
     sess = Session.create(out_dir, name, rig, tags, rois, anchor, notes=f"simulated, seed={seed}")
+    if scene is not None:
+        from .audio.geometry import save_devices
+
+        cal = sess.file(CALIBRATION_FILE)
+        cal.unlink(missing_ok=True)  # this computer's own calibration does not belong to the simulated cage
+        save_devices(cal, scene.devices(), {"note": "simulated: the true positions and levels"})
 
     # RFID
     lines, truth = simulate_rfid(world, tags, rfid_model, seed=seed + 1)

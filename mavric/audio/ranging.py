@@ -13,17 +13,22 @@ agree with the sounds, starting from their typed positions, each held near it
 by its own uncertainty. Four speakers at one height leave a microphone's height
 poorly fixed (mirror images above and below them); the typed height keeps it on
 the right side.
+
+How strongly each sweep arrives, after the distance and the microphone's
+pickup, gives each microphone's recording gain and each speaker's output
+(`levels`): the place suggestions in review compare levels between the two
+microphones, so their gains must be known.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from .geometry import Device
+from .geometry import Device, cardioid_db
 
 BANDS = {"1-16 kHz": (1000.0, 16000.0), "12-20 kHz (above pigeon hearing)": (12000.0, 20000.0)}
 MIN_SNR_DB = 15.0
@@ -252,9 +257,63 @@ def fit(r: Ranging, devices: dict[str, Device], free: list[str] | tuple = (), c:
         if n in free:
             i = free.index(n)
             sds[n] = np.sqrt(np.clip(np.diag(cov)[1 + 3 * i: 4 + 3 * i], 0, None))
-            out[n] = Device(n, d.kind, pos[n].copy(), d.aim, "sound", float(sds[n].max()))
+            out[n] = replace(d, position=pos[n].copy(), how="sound", sd_mm=float(sds[n].max()))
         else:
             out[n] = d
     res = {k: float((r.pairs[k]["delay_ms"] - x[0]) * c - np.linalg.norm(pos[k[0]] - pos[k[1]])) for k in pairs}
     moved = {n: float(np.linalg.norm(pos[n] - p0[n])) for n in free}
     return Fit(out, free, float(x[0]), res, moved, c, sds)
+
+
+# --------------------------------------------------------------------------- levels
+
+
+@dataclass
+class Levels:
+    """Each microphone's recording gain relative to the first microphone and each speaker's output relative to the
+    first speaker (dB), from how strongly the sweeps arrived after the distance and the microphone's cardioid
+    pickup. The speakers' own directivity is not modelled: it stays in the residuals."""
+
+    mic_db: dict[str, float]
+    speaker_db: dict[str, float]
+    resid_db: dict[tuple[str, str], float]
+
+    @property
+    def rms_db(self) -> float:
+        r = np.array(list(self.resid_db.values()))
+        return float(np.sqrt(np.mean(r ** 2))) if len(r) else float("nan")
+
+    def summary(self) -> str:
+        mics = ", ".join(f"{n} {round(v, 1) + 0.0:+.1f}" for n, v in self.mic_db.items())  # no "-0.0"
+        spk = ", ".join(f"{n} {round(v, 1) + 0.0:+.1f}" for n, v in self.speaker_db.items())
+        return (f"recording gain {mics} dB; speaker output {spk} dB (the sweeps agree with these within "
+                f"{self.rms_db:.1f} dB RMS)")
+
+    def apply(self, devices: dict[str, Device]) -> dict[str, Device]:
+        """The devices with these levels (others unchanged)."""
+        lv = {**self.mic_db, **self.speaker_db}
+        return {n: replace(d, level_db=lv[n]) if n in lv else d for n, d in devices.items()}
+
+
+def levels(r: Ranging, devices: dict[str, Device]) -> Levels | None:
+    """Fit every pair's sweep gain as speaker output + microphone gain - distance loss + cardioid pickup."""
+    pairs = [k for k in r.ok_pairs() if k[0] in devices and k[1] in devices and "gain_db" in r.pairs[k]]
+    order = list(devices)
+    spk = sorted({s for s, _ in pairs}, key=order.index)
+    mic = sorted({m for _, m in pairs}, key=order.index)
+    if not pairs or len(pairs) < len(spk) + len(mic):
+        return None
+    A = np.zeros((len(pairs), len(spk) + len(mic) - 1))  # columns: every speaker, then every microphone but the first
+    y = np.empty(len(pairs))
+    for i, (s, m) in enumerate(pairs):
+        S, M = devices[s], devices[m]
+        d = float(np.linalg.norm(S.position - M.position))
+        y[i] = r.pairs[(s, m)]["gain_db"] + 20 * np.log10(max(d, 1.0) / 1000.0) - cardioid_db(M, S.position)
+        A[i, spk.index(s)] = 1.0
+        if mic.index(m):
+            A[i, len(spk) + mic.index(m) - 1] = 1.0
+    x, *_ = np.linalg.lstsq(A, y, rcond=None)
+    res = y - A @ x
+    return Levels({m: (0.0 if k == 0 else float(x[len(spk) + k - 1])) for k, m in enumerate(mic)},
+                  {s: float(x[k] - x[0]) for k, s in enumerate(spk)},
+                  {p: float(v) for p, v in zip(pairs, res)})

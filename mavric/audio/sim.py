@@ -1,7 +1,10 @@
 """Simulated audio for the simulated cage: two microphones, the sync pulse, pigeon calls, played stimuli.
 
 micA sits by perches 1 and 3, micB by perches 2 and 4: a call is louder and
-earlier on the near microphone. The sync channel carries the RFID Arduino's
+earlier on the near microphone. In a 3D cage (SimScene3D) the calls and
+stimuli come from where the bird or the speaker is instead: each microphone
+hears them after their distance at 343 m/s, weaker with distance and off its
+axis (cardioid), with its recording gain; no echoes. The sync channel carries the RFID Arduino's
 pulses as an AC-coupled line input records them. The audio interface's
 sample clock drifts against the world clock like a real crystal.
 
@@ -23,6 +26,8 @@ from .config import AudioConfig
 
 NEAR = {"micA": (1, 3), "micB": (2, 4)}
 HIDDEN_LATENCY = 29  # samples: speaker -> microphone delay the simulated driver does not report (3D cage only)
+C_MM_PER_S = 343000.0
+REF_MM = 300.0  # 3D cage: a call this far away on a microphone's axis peaks at call_dbfs (a stimulus at stim_dbfs)
 
 
 @dataclass
@@ -119,6 +124,32 @@ class AudioSynth:
         self.rng = np.random.default_rng(seed + 1234)
         self.noise = 10 ** (self.m.noise_dbfs / 20)
         self.amp = 10 ** (self.m.call_dbfs / 20)
+        self._geo: dict | None = None
+        self._where: dict[int, np.ndarray] = {}
+
+    def _devices(self) -> dict:
+        """The microphones and speakers of a 3D cage (SimScene3D.devices), else none."""
+        if self._geo is None:
+            scene = getattr(self.world, "scene", None)
+            self._geo = scene.devices() if scene is not None and hasattr(scene, "devices") else {}
+        return self._geo
+
+    def _path(self, mic, x) -> tuple[float, float]:
+        """(delay s, gain) from a source at x to the microphone, relative to REF_MM on its axis."""
+        from .geometry import cardioid_db
+
+        d = max(float(np.linalg.norm(np.asarray(x, float) - mic.position)), 50.0)
+        return d / C_MM_PER_S, REF_MM / d * 10 ** ((cardioid_db(mic, x) + (mic.level_db or 0.0)) / 20)
+
+    def _caller(self, i: int) -> np.ndarray:
+        """Where call i comes from in a 3D cage: the bird's head when it starts."""
+        if i not in self._where:
+            from ..sim import BIRD_MM
+            from .geometry import HEAD_MM
+
+            c = self.calls[i]
+            self._where[i] = self.world.scene.bird(c.pigeon, c.t) + np.array([0.0, 0.0, HEAD_MM - BIRD_MM[2]])
+        return self._where[i]
 
     def render(self, t: np.ndarray) -> np.ndarray:
         out = np.zeros((len(t), len(self.cfg.names)), np.float32)
@@ -147,13 +178,18 @@ class AudioSynth:
     def _mic(self, t: np.ndarray, name: str) -> np.ndarray:
         y = self.rng.normal(0, self.noise, len(t))
         near = NEAR.get(name, ())
+        geo = self._devices()
+        mic = geo.get(name)
         t0, t1 = float(t[0]), float(t[-1])
         i = bisect.bisect_left(self._starts, t0 - 1.0)
         while i < len(self.calls) and self.calls[i].t <= t1:
             c = self.calls[i]
+            if mic is not None:
+                delay, gain = self._path(mic, self._caller(i))
+            else:
+                far = c.perch not in near
+                delay, gain = (self.m.far_delay_s, self.m.far_gain) if far else (0.0, 1.0)
             i += 1
-            far = c.perch not in near
-            delay = self.m.far_delay_s if far else 0.0
             u = (t - c.t - delay) / c.dur
             m = (u >= 0) & (u < 1)
             if not m.any():
@@ -162,19 +198,26 @@ class AudioSynth:
             env = np.sin(np.pi * u[m]) ** 2 * (0.7 + 0.3 * np.sin(2 * np.pi * 6 * tt))
             tone = (np.sin(2 * np.pi * c.f0 * tt) + 0.5 * np.sin(4 * np.pi * c.f0 * tt)
                     + 0.25 * np.sin(6 * np.pi * c.f0 * tt)) / 1.75
-            y[m] += self.amp * (self.m.far_gain if far else 1.0) * env * tone
+            y[m] += self.amp * gain * env * tone
         side = 1 if name == "micA" else 0  # odd speaker numbers stand on micA's side
         for s in self.stim:
             if s.t > t1 or s.t + s.dur + 0.01 < t0:
                 continue
-            far = s.speaker % 2 != side
-            tt = t - s.t - self.m.air_s - (self.m.far_delay_s if far else 0.0)
+            spk = geo.get(self.cfg.speakers.get(s.speaker, ""))
+            if mic is not None and spk is not None:
+                delay, gain = self._path(mic, spk.position)
+                gain *= 10 ** ((spk.level_db or 0.0) / 20)
+            else:
+                far = s.speaker % 2 != side
+                delay = self.m.air_s + (self.m.far_delay_s if far else 0.0)
+                gain = self.m.far_gain if far else 1.0
+            tt = t - s.t - delay
             m = (tt >= 0) & (tt < s.dur)
             if not m.any():
                 continue
             u = tt[m] / s.dur
             ph = 2 * np.pi * (900.0 * tt[m] + 250.0 * tt[m] ** 2 / s.dur)  # sweep 900 -> 1400 Hz, unlike the coos
-            amp = 10 ** (self.m.stim_dbfs / 20) * (self.m.far_gain if far else 1.0)
+            amp = 10 ** (self.m.stim_dbfs / 20) * gain
             y[m] += amp * np.sin(np.pi * u) ** 2 * (np.sin(ph) + 0.3 * np.sin(2 * ph)) / 1.3
         return y.astype(np.float32)
 
@@ -203,8 +246,9 @@ class SimAudioBackend:
 
     def paths(self) -> dict | None:
         """With a 3D cage whose devices are placed (SimScene3D.devices): every speaker -> microphone path as
-        (delay samples, gain), the direct sound and its floor reflection, by distance and the microphone's cardioid
-        pickup. The delay includes HIDDEN_LATENCY, which the driver does not report (like converter latency)."""
+        (delay samples, gain), the direct sound and its floor reflection, by distance, the microphone's cardioid
+        pickup and both devices' levels. The delay includes HIDDEN_LATENCY, which the driver does not report (like
+        converter latency)."""
         scene = getattr(self.world, "scene", None)
         if scene is None or not hasattr(scene, "devices"):
             return None
@@ -220,8 +264,9 @@ class SimAudioBackend:
                 if spk is None or mic is None:
                     return None
                 image = spk.position * np.array([1.0, 1.0, -1.0])  # the speaker mirrored in the floor
+                g0 = 0.3 * 10 ** (((spk.level_db or 0.0) + (mic.level_db or 0.0)) / 20)
                 out[(o, j)] = [(2 * self.cfg.block + HIDDEN_LATENCY + np.linalg.norm(p - mic.position) / c * sr / 1e3,
-                                g * 0.3 * 1000.0 / np.linalg.norm(p - mic.position) * 10 ** (cardioid_db(mic, p) / 20))
+                                g * g0 * 1000.0 / np.linalg.norm(p - mic.position) * 10 ** (cardioid_db(mic, p) / 20))
                                for p, g in ((spk.position, 1.0), (image, 0.45))]
         return out
 

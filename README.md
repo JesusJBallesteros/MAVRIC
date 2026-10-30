@@ -198,9 +198,11 @@ be identified even when part of the board is hidden.
      arrival time at each microphone gives each distance (one sample at 48 kHz is 7 mm of air). The check says how
      far the typed layout is off, and which device. *Fit positions* moves the microphones (or speakers) to agree
      with the sounds, each held near its typed position. Four speakers at one height fix a microphone's x and y
-     well, its height less so.
+     well, its height less so. The same sweeps give each microphone's recording gain and each speaker's output.
    - **Places as the microphones hear them:** for a call from each place, how much later and quieter it reaches one
-     microphone than the other. Places that sound alike are flagged. Then *Save devices*.
+     microphone than the other. Places that sound alike are flagged. Review grades the emitter suggestions by these.
+   - **Speaker level at each place:** each speaker's level at the places, from the distance and its measured output.
+     Then *Save devices*.
 
 ![Microphones and speakers](docs/images/calibrate_devices.png)
 
@@ -288,9 +290,13 @@ Whatever the session lacks is greyed out. `--annotator <initials>` skips the dia
 
 **How labels count**
 - **Ground truth:** only time you actually watched counts. Label blind first, then curate.
-- **Emitter suggestions** combine which microphone heard the sound louder with the subjects RFID detected at each
-  place at that moment. Set `audio.mic_near` in `rig.yaml` (which antennas each microphone is next to) to rank
-  them.
+- **Emitter suggestions** combine how the two microphones heard the sound with the subjects RFID detected at each
+  place at that moment.
+  - **By place** (microphones and places placed in 3D, *Calibrate cameras…*): each subject is graded by how well
+    the sound's arrival-time and level difference fit its place. *unknown* comes first when the sound fits a place
+    where no tag was read.
+  - **By side** (otherwise): set `audio.mic_near` in `rig.yaml` (which antennas each microphone is next to) to rank
+    them by the louder microphone.
 - **Played sounds** (soundboard, rules) appear by themselves as *playback* events.
 
 **Audio only** (a session without cameras, or *Video* unticked): the playhead runs on its own clock (← → step

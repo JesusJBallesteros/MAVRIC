@@ -1,4 +1,5 @@
-"""Microphone and speaker positions: geometry, the sound check and fit, and the Calibrate cameras tab 4."""
+"""Microphone and speaker positions: geometry, the sound check and fit, the places as the microphones hear them,
+the speaker level at each place, and the Calibrate cameras tab 4."""
 
 from __future__ import annotations
 
@@ -11,8 +12,8 @@ import pytest
 import yaml
 
 from mavric.audio.geometry import Device, aim_at, cardioid_db, confusable, direction, fingerprints, load_devices, \
-    place_sources, save_devices, suggested_layout
-from mavric.audio.ranging import Ranging, analyse, arrival, fit, sweep
+    place_fingerprints, place_fit, place_sources, save_devices, speaker_levels, suggested_layout
+from mavric.audio.ranging import Ranging, analyse, arrival, fit, levels, sweep
 
 SR = 48000.0
 SPEAKERS = ["spk1", "spk2", "spk3", "spk4"]
@@ -56,6 +57,40 @@ def test_places_heard_by_two_microphones(cage):
     assert confusable(fp) == []
     same = {"X": src["P1"], "Y": src["P1"] + 5.0}
     assert confusable(fingerprints([devs["micA"], devs["micB"]], same)) == [("X", "Y")]
+
+
+def test_place_fit_and_the_speaker_level_at_each_place(cage, tmp_path, capsys):
+    _, scene, rs = cage
+    devs = scene.devices()
+    mics = [devs["micA"], devs["micB"]]
+    fp = place_fingerprints(mics, rs)
+    centre = fingerprints(mics, place_sources(rs))
+    for n, (dt_, dl, sdt, sdl) in fp.items():
+        assert (dt_, dl) == pytest.approx(centre[n]) and 0 < sdt < 0.3 and 0 < sdl < 3  # spread over the outline
+    plain = fingerprints([replace(m, level_db=None) for m in mics], place_sources(rs))
+    assert fp["P1"][1] - plain["P1"][1] == pytest.approx(-2.0)  # micB records 2 dB quieter
+    dt_, dl = fp["P3"][:2]
+    fits = place_fit(fp, dl, [dt_ - 1.4, dt_ + 0.02])  # a tonal call: the candidate nearest each place counts
+    assert fits["P3"] > 0.9 and fits["P1"] < 0.35 and fits["P2"] < 0.01 and fits["P4"] < 0.01  # P1: same side
+    assert place_fit(fp) == {n: 1.0 for n in fp}  # nothing measured: every place fits
+    s1, s4 = devs["spk1"], devs["spk4"]
+    lv = speaker_levels([s1, s4], {"ahead": s1.position + 1000 * s1.axis})
+    assert lv["spk1"]["ahead"] == pytest.approx((1000.0, 0.0, 0.0), abs=1e-6)
+    d4 = float(np.linalg.norm(s1.position + 1000 * s1.axis - s4.position))
+    assert lv["spk4"]["ahead"][2] == pytest.approx(-20 * np.log10(d4 / 1000) - 3.0)  # spk4 plays 3 dB quieter
+    # mavric calibrate show
+    from mavric.cli import main
+
+    cal, rois = tmp_path / "calibration.yaml", tmp_path / "rois.json"
+    save_devices(cal, devs)
+    rs.save(rois)
+    rig = tmp_path / "rig.yaml"
+    rig.write_text(yaml.safe_dump({"paths": {"calibration_file": str(cal), "rois_file": str(rois)}}), encoding="utf-8")
+    main(["--rig", str(rig), "calibrate", "show"])
+    out = capsys.readouterr().out
+    assert "micB: mic at" in out and "level -2.0 dB" in out
+    assert "places as the microphones hear them (micB minus micA)" in out and "P3: +" in out
+    assert "speaker level at each place" in out and "spk4 " in out
 
 
 def test_suggested_layout_surrounds_the_places(cage):
@@ -163,6 +198,11 @@ def test_measured_on_the_live_simulated_interface(cage):
     assert len(r.ok_pairs()) == 8 and all(v["spread_ms"] < 0.01 for v in r.pairs.values())
     f = fit(r, scene.devices())
     assert f.latency_ms == pytest.approx(HIDDEN_LATENCY / SR * 1e3, abs=0.01) and f.rms_mm < 3
+    lv = levels(r, scene.devices())  # micB records 2 dB quieter, spk4 plays 3 dB quieter (sim.LEVEL_DB)
+    assert lv.mic_db["micA"] == 0.0 and lv.mic_db["micB"] == pytest.approx(-2.0, abs=0.3)
+    assert lv.speaker_db["spk1"] == 0.0 and lv.speaker_db["spk4"] == pytest.approx(-3.0, abs=0.3)
+    assert abs(lv.speaker_db["spk2"]) < 0.3 and lv.rms_db < 0.5 and "recording gain" in lv.summary()
+    assert lv.apply(scene.devices())["micB"].level_db == lv.mic_db["micB"]
 
 
 @pytest.mark.skipif(os.environ.get("MAVRIC_SKIP_GUI") == "1", reason="GUI tests disabled")
@@ -204,16 +244,21 @@ def test_devices_tab_on_the_simulated_cage(tmp_path):
         assert tab.table.cellWidget(0, 1).value() == 10.0 and tab.devices["micA"].how == "typed"
         for n in SPEAKERS:  # the speakers' true places typed in
             tab.devices[n] = scene.devices()[n]
+        assert "not measured yet" in tab.spl_label.text()
         tab._measured(measure(ctl.audio, repeats=2, gap_s=0.25))
-        assert "8 of 8" in tab.sound_label.text() and tab.b_fit.isEnabled()
+        assert "8 of 8" in tab.sound_label.text() and tab.b_fit.isEnabled() and "Levels:" in tab.sound_label.text()
         tab._fit()
         assert "simulated: every fitted device within" in tab.sound_label.text()
         tab._apply_fit()
         truth = scene.devices()
         assert all(np.linalg.norm(tab.devices[n].position[:2] - truth[n].position[:2]) < 15 for n in ("micA", "micB"))
+        assert tab.devices["micB"].level_db == pytest.approx(-2.0, abs=0.5)
+        assert "measured by sound" in tab.fp_label.text() and "spk4" in tab.spl_label.text()
+        assert "not measured yet" not in tab.spl_label.text()
         tab._save()
         saved, meta = load_devices(ctl.rig["paths"]["calibration_file"])
         assert set(saved) == {"micA", "micB", *SPEAKERS} and saved["micA"].how == "sound" and "sound_check" in meta
+        assert saved["spk4"].level_db == pytest.approx(-3.0, abs=0.5)
         assert "6 sound devices" in win.cal_label.text()
         dlg.close()
     finally:

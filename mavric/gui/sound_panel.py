@@ -23,6 +23,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from ..audio.detect import detect_events, measure_event, occupancy, overlapping_playback, suggest_emitters
+from ..audio.geometry import place_fit, session_places
 from ..audio.events import (
     SYSTEM,
     UNKNOWN,
@@ -417,6 +418,8 @@ class SoundLabeler(QtCore.QObject):
         sess, P = win.sess, win.P
         self.sess = sess
         self.src = AudioSource(sess, P.audio)
+        # the places as the microphones hear them (empty: suggestions by mic_near instead)
+        self.place_fp, self.max_dt_ms, _why = session_places(sess, self.src.mics)
         rig = load_rig()
         self.types_path = resolve_path(rig["paths"].get("sound_types_file", "config/sound_types.yaml"))
         self.types = load_types(self.types_path)
@@ -622,15 +625,24 @@ class SoundLabeler(QtCore.QObject):
     # ------------------------------------------------------------------ suggestions
     def _suggest(self, t0: float, t1: float) -> None:
         try:
-            m = measure_event(self.src, t0, t1)
+            m = measure_event(self.src, t0, t1, max_lag_s=(self.max_dt_ms + 0.2) / 1e3 if self.place_fp else 0.003)
         except Exception as ex:
             self.sugg_label.setText(f"<small>no measurement: {ex}</small>")
             self._sugg = []
             return
         perched = occupancy(self.win.P.bouts, t0, t1)
         played = overlapping_playback(self.events, t0, t1)
-        self._sugg = suggest_emitters(m, perched, self.src.mic_near, played)
+        fits = None
+        if self.place_fp and m.get("level_diff_db") is not None:
+            fits = place_fit(self.place_fp, -m["level_diff_db"], m.get("delay_candidates_ms") or ())
+        self._sugg = suggest_emitters(m, perched, self.src.mic_near, played, fits)
         lv = " · ".join(f"{k} {v:.0f} dBFS" for k, v in m["levels_db"].items())
+        if fits is not None:
+            a, b = self.src.mics[:2]
+            dt_ = f"{m['delay_ms']:+.2f} ms" if m.get("delay_reliable") else "time ambiguous"
+            best = sorted(fits.items(), key=lambda kv: -kv[1])[:3]
+            lv += (f"<br>{b} − {a}: {dt_}, {-m['level_diff_db']:+.1f} dB · fits "
+                   + ", ".join(f"{r} {f:.0%}" for r, f in best))
         rows = [f"<b>{em}</b> <small>({why})</small>" if why else f"<b>{em}</b>" for em, _s, why in self._sugg[:3]]
         self.sugg_label.setText("<small>suggested emitter:</small><br>" + "<br>".join(rows)
                                 + f"<br><small>{lv}</small>")

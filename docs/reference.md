@@ -196,16 +196,29 @@ an ArUco marker.
   - **Fit positions:** moves the ticked kind of device (microphones, speakers) and L to agree with the sounds. Each
     device is held near its typed position (± 250 mm per axis); the result gives each one's uncertainty per axis.
     With four speakers at one height, a microphone's height stays mostly where it was typed.
+  - **Levels:** how strongly each sweep arrived, after the distance and the microphone's cardioid pickup. A least
+    squares fit over all pairs gives each microphone's recording gain relative to the first microphone, and each
+    speaker's output relative to the first speaker. The speakers' own directivity is not modelled; it shows in the
+    residual (dB RMS). Measured again after *Use the fitted positions*.
 - **Places as the microphones hear them:** for a call from each place (60 mm above its surface), the arrival-time
-  difference between the two microphones and the level difference, from distance and the cardioid pickup. Two places
-  within 0.25 ms and 3 dB of each other are flagged as hard to tell apart.
+  difference between the two microphones and the level difference. They come from distance, the cardioid pickup and
+  the microphones' measured gains, with how much each varies over the place's outline (±). Two places within
+  0.25 ms and 3 dB of each other are flagged as hard to tell apart. Review grades the emitter suggestions by these
+  (see [Label](#2-label-mavric-review-session)).
+- **Speaker level at each place:** each speaker's level at a bird's head above each place, in dB relative to 1 m in
+  front of the first speaker, from the distance and the speaker's measured output. The angle off each speaker's
+  axis is shown. Not included: the speakers' directivity and the room's echoes.
 - **Saved** in `config/calibration.yaml` → `devices: <name>:` holds `kind`, `position_mm`, `aim_deg` and `placed`
-  (`typed`, `suggested` or `sound`, with `sd_mm` after a fit). `devices_meta:` holds the date, the date of the camera
-  world the positions belong to, and the last sound check and fit. Sessions copy the file with the devices.
+  (`typed`, `suggested` or `sound`, with `sd_mm` after a fit), and `level_db` once measured. `devices_meta:` holds
+  the date, the date of the camera world the positions belong to, and the last sound check and fit. Sessions copy
+  the file with the devices. `mavric calibrate show` prints the devices, the places as the microphones hear them and
+  the speaker level at each place.
 - **Simulation:** in the 3D simulated cage the devices have true positions (*True positions (simulation)*). The
   simulated interface delays and attenuates each speaker → microphone path by its distance and the cardioid
-  pickup, adds a floor reflection and a 0.6 ms latency it does not report. The check finds that latency and fits the
-  microphones from the suggested layout to within about 15 mm.
+  pickup, adds a floor reflection and a 0.6 ms latency it does not report. micB records 2 dB quieter and spk4 plays
+  3 dB quieter. The check finds that latency and both levels (within 0.3 dB), and fits the microphones from the
+  suggested layout to within about 15 mm. `mavric simulate --audio --places-3d` writes a session whose places,
+  microphones and speakers are in 3D, with calls that reach each microphone by distance and pickup.
 
 ### FLIR / Point Grey cameras (Chameleon3, Blackfly S)
 
@@ -754,10 +767,19 @@ Choose *Analyze* for the report, and *Render* for the annotated video.
 **More**
 - **Listening during playback:** tick *Play audio during playback* (on by default without video). Slower speeds
   lower the pitch, which helps with fast or high calls.
-- **Emitter suggestions** combine:
-  - which microphone the sound was louder on (and reached first, for broadband sounds)
-  - which subjects RFID detects at each place at that moment
-  - `audio.mic_near` in `rig.yaml`: which antennas each microphone is next to.
+- **Emitter suggestions:** the subjects RFID detects at each place at that moment, and the rig when it played a
+  sound then. They are ranked in one of two ways.
+  - **By place:** when the session's calibration has both microphones and its places are placed in 3D
+    ([Microphones and speakers](#camera-calibration)). The sound's level and arrival-time difference between the two
+    microphones are compared with each place's. A subject scores how well the sound fits its place, 0–100 %, within
+    3 dB and 0.1 ms plus the place's own spread. *unknown* comes first when the sound fits best a place where no tag
+    was read, or no place at all. The panel shows the measured differences and the best-fitting places.
+  - **By side** (otherwise): which microphone the sound was louder on, and reached first for broadband sounds.
+    `audio.mic_near` in `rig.yaml` says which antennas each microphone is next to.
+  - **The arrival-time difference** (GCC-PHAT) is searched within the microphones' distance when it is known.
+    Frequencies more than 30 dB below the strongest are left out, so whitened noise does not swamp a tonal call's
+    harmonics. A tonal call correlates again one pitch period away, so every peak nearly as strong is a candidate, and
+    each place is compared with the nearest.
 - **Played sounds:** sounds the rig played (`audio_playback.csv`, from the soundboard and rules) appear automatically
   with type *playback*, emitter *system:<speaker>* and the sound's name as the note.
 
@@ -946,12 +968,10 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 - **Camera drift check and 3D tracking** (lenses, camera positions and 3D places are built): check every session
   that the sync LED flashes where it should in every camera, and warn when a camera moved; later, frame-triggered
   capture for 3D tracking and pose.
-- **Graded emitter suggestions and the stimulus level at each place** (microphone and speaker positions are
-  built): rank the places by how well a sound event's arrival-time and level difference fit each place, and give
-  each speaker's level at each place.
 - **Automatic call classification,** trained on the labeled sound events.
 - **Playback schedules:** playlists and timed stimulus sequences (sounds play by hand or from RFID rules today).
-- **Speaker calibration:** level per speaker at the subjects' position.
+- **Speaker level in dB SPL** (each speaker's relative output and its level at each place are built): an absolute
+  level needs one reference measurement, a sound level meter at 1 m.
 - **DeepLabCut SuperAnimal models:** detect animals in each ROI with no training, to pre-fill label proposals.
 - **RFID → video identity:** PyMouseTracks-style assignment, a DLC `stitch_tracklets(weight_func=...)` hook, and
   identity-head training on single-occupancy frames that RFID has confirmed.

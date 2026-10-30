@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
-from ..audio.geometry import Device, aim_at, confusable, fingerprints, load_devices, place_sources, save_devices, \
-    speed_of_sound, suggested_layout
-from ..audio.ranging import BANDS, fit, measure
+from ..audio.geometry import Device, aim_at, confusable, load_devices, place_fingerprints, place_sources, \
+    save_devices, speaker_levels, speed_of_sound, suggested_layout
+from ..audio.ranging import BANDS, fit, levels, measure
 from ..config import RoiSet
 from ..video.places import place_3d, problem
 from .common import Worker, message
@@ -248,6 +250,17 @@ class DevicesTab(QtWidgets.QWidget):
         f.addWidget(self.fp_label)
         v.addWidget(b)
 
+        b = QtWidgets.QGroupBox("Speaker level at each place")
+        f = QtWidgets.QVBoxLayout(b)
+        self.spl_label = QtWidgets.QLabel("")
+        self.spl_label.setWordWrap(True)
+        self.spl_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.spl_label.setToolTip("Level at a bird's head above each place, from the distance and each speaker's "
+                                  "measured output; not the speakers' directivity (the angle off each speaker's axis "
+                                  "shows where it matters) or the room's echoes")
+        f.addWidget(self.spl_label)
+        v.addWidget(b)
+
         self.b_save = QtWidgets.QPushButton("Save devices")
         self.b_save.clicked.connect(self._save)
         v.addWidget(self.b_save)
@@ -338,14 +351,14 @@ class DevicesTab(QtWidgets.QWidget):
         i = self._row(name)
         v = [self.table.cellWidget(i, 1 + k).value() for k in range(5)]
         d = self.devices[name]
-        self.devices[name] = Device(name, d.kind, np.array(v[:3]), (v[3], v[4]), "typed")
+        self.devices[name] = replace(d, position=np.array(v[:3]), aim=(v[3], v[4]), how="typed", sd_mm=None)
         self.table.item(i, 6).setText("typed")
         self.space.update_device(self.devices[name])
         self._fingerprints()
 
     def _moved(self, name: str, pos) -> None:
         d = self.devices[name]
-        self.devices[name] = Device(name, d.kind, np.asarray(pos, float), d.aim, "typed")
+        self.devices[name] = replace(d, position=np.asarray(pos, float), how="typed", sd_mm=None)
         i = self._row(name)
         self._filling = True
         try:
@@ -366,7 +379,8 @@ class DevicesTab(QtWidgets.QWidget):
 
     def _suggest(self) -> None:
         sug = suggested_layout(place_sources(self.places), self.mics, self.speakers)
-        self._set_all({n: Device(n, d.kind, d.position, d.aim, "suggested") for n, d in sug.items()})
+        self._set_all({n: replace(self.devices.get(n, d), position=d.position, aim=d.aim, how="suggested", sd_mm=None)
+                       for n, d in sug.items()})
         self.status.setText("Suggested layout: speakers at the corners, microphones above the long midline. Move "
                             "each device to where it really is.")
 
@@ -376,30 +390,52 @@ class DevicesTab(QtWidgets.QWidget):
             message(self, "Aim", "Place the places in 3D first (tab 3).")
             return
         mid = np.mean(list(src.values()), axis=0)
-        self._set_all({n: Device(n, d.kind, d.position, aim_at(d.position, mid), d.how)
-                       for n, d in self.devices.items()})
+        self._set_all({n: replace(d, aim=aim_at(d.position, mid)) for n, d in self.devices.items()})
 
     def _use_truth(self) -> None:
         self._set_all(self._scene().devices())
 
     def _fingerprints(self) -> None:
+        """The places as the microphones hear them, and each speaker's level at each place."""
         src = place_sources(self.places)
+        spk = [self.devices[n] for n in self.speakers if n in self.devices]
+        self.spl_label.setText(self._levels_table(spk, src) if spk and src else "Needs speakers and places placed "
+                               "in 3D.")
         mics = [self.devices[n] for n in self.mics if n in self.devices]
         if len(mics) < 2 or not src:
             self.fp_label.setText("Needs two microphones and places placed in 3D.")
             return
-        c = speed_of_sound(float((self.ctl.rig.get("audio") or {}).get("temperature_c", 20.0)))
-        fp = fingerprints(mics, src, c)
+        fp = place_fingerprints(mics, self.places, self._c())
         a, b = mics[0].name, mics[1].name
-        lines = [f"A call from each place reaches {b} later (+) or earlier than {a}, and quieter (−) or louder:"]
-        lines += [f"{n}: {dt_:+.2f} ms, {dl:+.1f} dB" for n, (dt_, dl) in fp.items()]
-        bad = confusable(fp)
+        lines = [f"A call from each place reaches {b} later (+) or earlier than {a}, and quieter (−) or louder "
+                 "(± over the place):"]
+        lines += [f"{n}: {dt_:+.2f} ± {sdt:.2f} ms, {dl:+.1f} ± {sdl:.1f} dB" for n, (dt_, dl, sdt, sdl) in fp.items()]
+        g = (mics[1].level_db or 0.0) - (mics[0].level_db or 0.0)
+        if mics[0].level_db is not None and mics[1].level_db is not None:
+            lines.append(f"<small>with {b} recording {g:+.1f} dB against {a} (measured by sound)</small>")
+        else:
+            lines.append("<small>the microphones' recording gains are not measured yet (Play and measure)</small>")
+        bad = confusable({n: v[:2] for n, v in fp.items()})
         if bad:
             lines.append("<b style='color:#c0392b'>Hard to tell apart by sound:</b> "
                          + ", ".join(f"{p} and {q}" for p, q in bad) + ". Moving or turning a microphone helps.")
         else:
-            lines.append("✓ every place sounds different at the two microphones")
+            lines.append("✓ every place sounds different at the two microphones: review grades the emitter "
+                         "suggestions by them")
         self.fp_label.setText("<br>".join(lines))
+
+    @staticmethod
+    def _levels_table(spk: list[Device], src: dict) -> str:
+        lv = speaker_levels(spk, src)
+        head = "".join(f"<th>&nbsp;{s.name}&nbsp;</th>" for s in spk)
+        rows = "".join(f"<tr><td>{p}</td>" + "".join(f"<td align='right'>{lv[s.name][p][2]:+.1f}"
+                                                     f" <small>({lv[s.name][p][1]:.0f}°)</small></td>" for s in spk)
+                       + "</tr>" for p in src)
+        ref = spk[0].name
+        note = ("" if all(s.level_db is not None for s in spk) else
+                " The speakers' outputs are not measured yet (Play and measure): taken as equal.")
+        return (f"<table cellspacing='4'><tr><th></th>{head}</tr>{rows}</table>"
+                f"<small>dB relative to 1 m in front of {ref} (angle off each speaker's axis).{note}</small>")
 
     # ------------------------------------------------------------------ sound
     def _measure(self) -> None:
@@ -425,8 +461,18 @@ class DevicesTab(QtWidgets.QWidget):
             lines.append("<b style='color:#c0392b'>Not heard:</b> " + ", ".join(missing)
                          + ". Raise the level, or check the speaker and the band.")
         lines.append("<b>The typed positions against the sounds:</b> " + self._fit_text(f0, show_moves=False))
+        lines.append(self._measure_levels())
         self.sound_label.setText("<br>".join(lines))
         self.b_fit.setEnabled(len(r.ok_pairs()) >= 4)
+
+    def _measure_levels(self) -> str:
+        """The microphones' recording gains and the speakers' outputs from the sweeps, at the current positions."""
+        lv = levels(self.ranging, self.devices) if self.ranging is not None else None
+        if lv is None:
+            return "<b>Levels:</b> not enough pairs heard."
+        self.devices = lv.apply(self.devices)
+        self._fingerprints()
+        return "<b>Levels:</b> " + lv.summary()
 
     def _c(self) -> float:
         return speed_of_sound(float((self.ctl.rig.get("audio") or {}).get("temperature_c", 20.0)))
@@ -463,7 +509,8 @@ class DevicesTab(QtWidgets.QWidget):
             return
         self._set_all({n: self.fitted.devices[n] for n in self.fitted.free})
         self.b_apply.setEnabled(False)
-        self.status.setText("Fitted positions in the table. Save devices to keep them.")
+        self.sound_label.setText(self.sound_label.text() + "<br>" + self._measure_levels())
+        self.status.setText("Fitted positions in the table, levels measured again there. Save devices to keep them.")
 
     def _save(self) -> None:
         meta = {"sound_check": self.ranging.as_dict()} if self.ranging is not None else {}

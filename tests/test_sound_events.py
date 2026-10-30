@@ -10,6 +10,7 @@ import pytest
 from mavric.analysis.audio_sync import AudioTimeMap
 from mavric.audio.config import AudioConfig
 from mavric.audio.detect import detect_events, measure_event, occupancy, suggest_emitters
+from mavric.audio.geometry import place_fit, session_places
 from mavric.audio.events import (
     PLAYBACK_FILE,
     SoundEvent,
@@ -28,12 +29,11 @@ from mavric.audio.source import AudioSource
 from mavric.session import Session
 
 
-@pytest.fixture(scope="module")
-def sound_session(tmp_path_factory):
+def _session_with_calls(path, **kw):
     from mavric.analysis.pipeline import prepare
     from mavric.sim import simulate_session
 
-    sess = simulate_session(tmp_path_factory.mktemp("sound"), duration_s=90, seed=7, audio=True, write_labels=False)
+    sess = simulate_session(path, duration_s=90, seed=7, audio=True, write_labels=False, **kw)
     P = prepare(sess)
     calls = pd.read_csv(sess.file("ground_truth_calls.csv"))
     tr = sess.meta["sim"]["audio"]
@@ -41,6 +41,22 @@ def sound_session(tmp_path_factory):
     calls["t1"] = P.audio((calls["t"] + calls["dur"] - tr["start_s"]) * tr["rate"])
     calls = calls[np.isfinite(calls["t0"]) & np.isfinite(calls["t1"])].reset_index(drop=True)
     return sess, P, calls
+
+
+@pytest.fixture(scope="module")
+def sound_session(tmp_path_factory):
+    return _session_with_calls(tmp_path_factory.mktemp("sound"))
+
+
+@pytest.fixture(scope="module")
+def placed_session(tmp_path_factory):
+    """The simulated cage in 3D: places at their heights, microphones and speakers in the session's calibration."""
+    return _session_with_calls(tmp_path_factory.mktemp("placed"), places_3d=True)
+
+
+def _isolated(calls):
+    return [c for c in calls.itertuples()
+            if not ((calls["t0"] < c.t1) & (calls["t1"] > c.t0) & (calls.index != c.Index)).any()]
 
 
 def test_audio_source_reads_across_files(tmp_path):
@@ -126,7 +142,34 @@ def test_side_and_emitter_suggestions(sound_session):
     played = [SoundEvent(1.0, 2.0, "playback", "system:spk1", source="playback", note="call_A.wav")]
     sug = suggest_emitters({"louder": None, "first": None}, [], {}, played)
     assert sug[0][0] == "system:spk1" and "call_A.wav" in sug[0][2]
+    assert session_places(sess, src.mics)[0] == {}  # no places in 3D: suggestions as above
     src.close()
+
+
+def test_graded_suggestions_from_the_places_in_3d(placed_session):
+    sess, P, calls = placed_session
+    src = AudioSource(sess, P.audio)
+    fp, max_dt, why = session_places(sess, src.mics)
+    assert why == "" and set(fp) == set(sess.antennas.values()) and 1.0 < max_dt < 1.2  # micA-micB: 375 mm
+    iso = _isolated(calls)
+    right = top1 = n = 0
+    for c in iso:
+        m = measure_event(src, c.t0, c.t1, max_lag_s=(max_dt + 0.2) / 1e3)
+        fits = place_fit(fp, -m["level_diff_db"], m["delay_candidates_ms"])
+        right += max(fits, key=fits.get) == sess.antennas[int(c.perch)]
+        perched = occupancy(P.bouts, c.t0, c.t1)
+        if perched:
+            n += 1
+            top1 += suggest_emitters(m, perched, src.mic_near, None, fits)[0][0] == c.pigeon
+    assert len(iso) >= 15 and right >= 0.9 * len(iso) and n >= 15 and top1 >= 0.9 * n
+    src.close()
+    # the sound fits a place where no tag was read: "unknown" first, and why
+    sug = suggest_emitters({}, [(1, "PerchA", "S01")], {}, None, {"PerchA": 0.02, "PerchB": 0.9})
+    assert sug[0][0] == "unknown" and "PerchB" in sug[0][2] and sug[1][0] == "S01"
+    sug = suggest_emitters({}, [(1, "PerchA", "S01")], {}, None, {"PerchA": 0.01, "PerchB": 0.01})
+    assert sug[0][:2] == ("unknown", 0.5) and "no place fits" in sug[0][2]
+    sug = suggest_emitters({}, [(1, "PerchA", "S01")], {}, None, {"PerchA": 0.8, "PerchB": 0.1})
+    assert [s[0] for s in sug] == ["S01", "unknown"] and "fits it 80%" in sug[0][2]
 
 
 def test_events_types_and_emitters_files(tmp_path):
@@ -234,6 +277,26 @@ def test_review_window_sound_labeling(sound_session):
     win.dirty = snd.dirty = False
     win.close()
     sess.file("sound_events.csv").unlink()
+
+
+def test_review_grades_the_suggestions_by_place(placed_session):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6 import QtWidgets
+
+    from mavric.gui.review_window import ReviewWindow
+
+    sess, P, calls = placed_session
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    win = ReviewWindow(sess, "JB")
+    snd = win.sound
+    assert snd.place_fp and snd.max_dt_ms > 1.0
+    c = next(c for c in _isolated(calls) if occupancy(P.bouts, c.t0, c.t1))
+    snd._suggest(c.t0, c.t1)
+    assert snd._sugg[0][0] == c.pigeon and "the sound fits it" in snd._sugg[0][2]
+    assert "micB − micA" in snd.sugg_label.text() and "fits " in snd.sugg_label.text()
+    snd.close()
+    win.dirty = snd.dirty = False
+    win.close()
 
 
 def test_review_without_video(tmp_path):
