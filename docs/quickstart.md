@@ -47,7 +47,7 @@ C:\Code\MAVRIC\
     video.yaml            camera and recording settings                       written by Video settings…
     outputs.yaml          output devices, rules, camera clip rules            written by Outputs…
     sound_types.yaml      sound event types                                   written by Types… (review)
-    calibration.yaml      each camera's lens and position                     written by Calibrate cameras…
+    calibration.yaml      cameras' lens and position; mics and speakers       written by Calibrate cameras…
   sessions\               one folder per recording (git ignores it)
   sounds\                 stimuli to play on the speakers (git ignores it)
   firmware\               Arduino sketches
@@ -161,6 +161,7 @@ audio:
   max_level_dbfs: -6    # playback limiter
   sounds_dir: sounds    # the stimulus library
   mic_near: {micA: [1, 3], micB: [2, 4]}   # antennas beside each microphone
+  temperature_c: 20     # room temperature, for the speed of sound
 ```
 
 | Key | Meaning |
@@ -173,6 +174,7 @@ audio:
 | `max_level_dbfs` | The loudest the speakers may get; louder mixes are clipped, and MAVRIC warns. |
 | `sounds_dir` | Folder of the stimuli (§3.4). |
 | `mic_near` | Which antennas (places) each microphone is next to. It ranks the emitter suggestions in review. |
+| `temperature_c` | Room temperature. The speed of sound depends on it when the speakers check the device positions (*Calibrate cameras…*, tab 4). |
 
 **`sync`: the sync LED**
 
@@ -225,7 +227,7 @@ You rarely edit these by hand:
 | `video.yaml` | Acquire → *Video settings… → Save* | camera settings and the recording format; they override `rig.yaml` |
 | `outputs.yaml` | Acquire → *Outputs… → Save & restart outputs* | output devices, rules, camera clip rules |
 | `sound_types.yaml` | Review → Sound events → *Types…* | the list of sound event types (F1–F9) |
-| `calibration.yaml` | Acquire → *Calibrate cameras…* → *Save* / *Save positions* | each camera's lens (focal length, image centre, distortion, error, date) and position in mm; `calibration/` keeps the board corners of the views used |
+| `calibration.yaml` | Acquire → *Calibrate cameras…* → *Save* / *Save positions* / *Save devices* | each camera's lens (focal length, image centre, distortion, error, date) and position in mm, and each microphone's and speaker's position and aim; `calibration/` keeps the board corners of the views used |
 
 Every session keeps a copy of the tag map, the ROIs and the camera calibration it used, so later edits don't change
 old sessions.

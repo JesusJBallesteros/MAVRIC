@@ -189,6 +189,21 @@ be identified even when part of the board is hidden.
 
 ![Places in 3D](docs/images/calibrate_places.png)
 
+6. **Microphones and speakers** (tab 4). They need not be in any camera's view. The tab shows the space from above
+   and from the side, around what the cameras see: the floor origin, the places, the cameras.
+   - **Position:** drag each device to where it is, or type its position in mm from the floor origin; aim the
+     microphones (the NT5 is a cardioid). *Suggested layout* starts with speakers at the corners and the two
+     microphones above the long midline.
+   - **Check with sound** (audio connected): *Play and measure* plays a short sweep on each speaker in turn. The
+     arrival time at each microphone gives each distance (one sample at 48 kHz is 7 mm of air). The check says how
+     far the typed layout is off, and which device. *Fit positions* moves the microphones (or speakers) to agree
+     with the sounds, each held near its typed position. Four speakers at one height fix a microphone's x and y
+     well, its height less so.
+   - **Places as the microphones hear them:** for a call from each place, how much later and quieter it reaches one
+     microphone than the other. Places that sound alike are flagged. Then *Save devices*.
+
+![Microphones and speakers](docs/images/calibrate_devices.png)
+
 A calibration holds while the lens, focus, zoom and image size stay the same. After changing the image size in
 *Video settings…*, calibrate again (the dialog warns). The simulated camera (`mavric acquire --sim`) shows a
 simulated board, so you can try all of this without hardware.
@@ -387,7 +402,7 @@ stay on your computer.
 | `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Video settings…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |
-| `calibration.yaml` | each camera's lens and position (`calibration/` holds the views used) | Acquire: *Calibrate cameras…* |
+| `calibration.yaml` | each camera's lens and position, the microphones and speakers (`calibration/` holds the views used) | Acquire: *Calibrate cameras…* |
 
 Every setting is explained in [docs/quickstart.md §3](docs/quickstart.md#3-configuration).
 

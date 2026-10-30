@@ -605,6 +605,17 @@ def cmd_calibrate(args):
                 c = p.centre
                 print(f"  {p.camera}: at ({c[0]:.0f}, {c[1]:.0f}, {c[2]:.0f}) mm"
                       + (f", {p.rms_px:.2f} px vs the other cameras" if p.rms_px == p.rms_px else ""))
+        from .audio.geometry import load_devices
+
+        devs, meta = load_devices(path)
+        if devs:
+            fitted = meta.get("sound_fit") or {}
+            print(f"microphones and speakers ({str(meta.get('date', ''))[:10]})"
+                  + (f": sound fit {fitted['rms_mm']:.0f} mm RMS" if fitted else ""))
+            for d in devs.values():
+                p = d.position
+                print(f"  {d.name}: {d.kind} at ({p[0]:.0f}, {p[1]:.0f}, {p[2]:.0f}) mm, aim {d.aim[0]:.0f}° / "
+                      f"{d.aim[1]:.0f}°, {d.how}")
         return 0
     det = BoardDetector(spec)
     cams = {c["id"]: c for c in rig["cameras"]}

@@ -198,6 +198,22 @@ def main() -> None:
              OUT / "calibrate_places.png", scale=0.75)
     pl._end_mark()
     pl._save()
+    cd.tabs.setCurrentIndex(3)  # microphones and speakers: the true speakers, microphones fitted by sound
+    dv = cd.devices
+    for n, d in ctl.world.scene.devices().items():
+        if d.kind == "speaker":
+            dv.devices[n] = d
+    dv._set_all(dv.devices)
+    from mavric.audio.ranging import measure
+
+    dv._measured(measure(ctl.audio, repeats=2, gap_s=0.25))
+    dv._fit()
+    dv._apply_fit()
+    pump(app, 0.8)
+    annotate(cd, [(dv.space, 1), (group(cd, "Microphones and speakers (mm, degrees)"), 2),
+                  (group(cd, "Check with sound"), 3), (group(cd, "Places as the microphones hear them"), 4)],
+             OUT / "calibrate_devices.png", scale=0.75)
+    dv._save()
     cd.close()
     win.view_combo.setCurrentIndex(win.view_combo.findData(GRID))  # every camera with the places it sees
     win.resize(1500, 760)

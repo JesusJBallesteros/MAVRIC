@@ -87,6 +87,7 @@ audio:
   max_level_dbfs: -6   # playback limiter: the mix is clipped above this level
   sounds_dir: sounds   # stimulus library: WAV/FLAC files, ideally 48 kHz mono (`mavric audio sounds` lists them)
   mic_near: {}         # mic -> antennas beside it, e.g. {micA: [1, 3], micB: [2, 4]}; ranks emitter suggestions
+  temperature_c: 20    # room temperature: the speed of sound when the speakers check the device positions
 
 sync:
   led_roi_name: SYNC  # name of the rectangle ROI over the sync LED

@@ -1,5 +1,5 @@
 """Calibrate cameras: each camera's lens, then all cameras' positions, from live views of the ChArUco board; then
-the places in 3D."""
+the places in 3D, and the microphones and speakers around them."""
 
 from __future__ import annotations
 
@@ -172,7 +172,12 @@ class CalibrationDialog(QtWidgets.QDialog):
 
         self.places = PlacesTab(self)
         self.tabs.addTab(self.places, "3 · Places in 3D")
-        self.tabs.currentChanged.connect(lambda i: self.places.activate() if i == 2 else None)
+        from .devices_tab import DevicesTab
+
+        self.devices = DevicesTab(self)
+        self.tabs.addTab(self.devices, "4 · Microphones and speakers")
+        self.tabs.currentChanged.connect(lambda i: self.places.activate() if i == 2 else
+                                         self.devices.activate() if i == 3 else None)
         QtGui.QShortcut(QtGui.QKeySequence("Space"), self, activated=self._space)
         from .tips import CALIBRATE, CALIBRATE_ATTR, apply_tips
 

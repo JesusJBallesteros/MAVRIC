@@ -175,6 +175,38 @@ an ArUco marker.
   them in.
 - **Not covered:** sloping or vertical surfaces (a place is a horizontal surface or a box on one).
 
+**Microphones and speakers** (tab 4 of the dialog, `mavric/audio/geometry.py`, `mavric/audio/ranging.py`):
+- **Needs:** camera positions with a floor origin. The places placed in 3D are shown and used, but not required.
+- **The space view:** from above (x, y) and from the side (x, z), in mm, with the floor origin, the places, the
+  cameras and every microphone and speaker of `rig.yaml` (`audio: inputs` and `speakers`). The view reaches past what
+  the cameras see, so devices out of view are placed the same way.
+- **Placing a device:** drag it in either view, or type x, y, z. Its aim is an azimuth (from +x towards +y) and an
+  elevation (up from the horizontal), in degrees.
+  - **Suggested layout:** speakers beyond the corners of the places, aimed at their middle; the two microphones
+    above the long midline, at a quarter and three quarters of its length, facing opposite sides.
+  - **Aim at the places:** points every device at the middle of the places.
+- **Check with sound** (the audio connected, not recording): each speaker plays a 50 ms sweep (1–16 kHz, or
+  12–20 kHz above pigeon hearing), 3 times.
+  - **Arrival:** each microphone's recording is matched against the sweep; the first strong peak is the direct
+    sound (later peaks are reflections). The delay after the driver's reported round trip is the air path plus one
+    constant the driver does not report (converter latency): `t = distance / c + L`. Here c is the speed of sound
+    at `audio.temperature_c` (default 20 °C, 343 m/s).
+  - **The check:** with the typed positions, L is fitted and each pair's distance compared: **PASS** needs ≤ 30 mm
+    RMS and no pair over 60 mm. The largest disagreements point at the device to check.
+  - **Fit positions:** moves the ticked kind of device (microphones, speakers) and L to agree with the sounds. Each
+    device is held near its typed position (± 250 mm per axis); the result gives each one's uncertainty per axis.
+    With four speakers at one height, a microphone's height stays mostly where it was typed.
+- **Places as the microphones hear them:** for a call from each place (60 mm above its surface), the arrival-time
+  difference between the two microphones and the level difference, from distance and the cardioid pickup. Two places
+  within 0.25 ms and 3 dB of each other are flagged as hard to tell apart.
+- **Saved** in `config/calibration.yaml` → `devices: <name>:` holds `kind`, `position_mm`, `aim_deg` and `placed`
+  (`typed`, `suggested` or `sound`, with `sd_mm` after a fit). `devices_meta:` holds the date, the date of the camera
+  world the positions belong to, and the last sound check and fit. Sessions copy the file with the devices.
+- **Simulation:** in the 3D simulated cage the devices have true positions (*True positions (simulation)*). The
+  simulated interface delays and attenuates each speaker → microphone path by its distance and the cardioid
+  pickup, adds a floor reflection and a 0.6 ms latency it does not report. The check finds that latency and fits the
+  microphones from the suggested layout to within about 15 mm.
+
 ### FLIR / Point Grey cameras (Chameleon3, Blackfly S)
 
 The `flir` backend (`mavric/video/flir.py`) drives FLIR / Point Grey USB3 cameras through **Spinnaker** (PySpin).
@@ -854,7 +886,7 @@ sessions/<YYYYmmdd_HHMMSS>_<name>/
   session.json        start/stop (UTC + local), software versions, clock anchor, rig snapshot, cameras, audio
                       (channels, sounds library with SHA-1), clips, stats
   tags.csv rois.json  snapshot of the tag map and ROIs used
-  calibration.yaml    snapshot of the camera calibration (lenses, positions), if there is one
+  calibration.yaml    snapshot of the calibration (lenses, camera positions, microphones and speakers), if any
   rfid_raw.csv        host_t, segment, micros, arduino_us, kind, tag, reader, checksum_ok, raw
   cam0_raw_000.mkv …  raw video, lossless FFV1 chunks (~2 GB; .avi if uncompressed); cam0.mp4 when recording H.264
   cam0_compressed.mp4 made by `mavric compress` (H.264, every frame, constant rate)
@@ -895,14 +927,15 @@ mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthet
 mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
                  sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling),
-                 calibration_dialog and places_tab (Calibrate cameras)
+                 calibration_dialog, places_tab and devices_tab (Calibrate cameras)
 mavric/acquire.py acquisition controller (no GUI), event bus for presence changes
 mavric/triggers.py RFID-triggered clip rules (ring-buffer pre-roll, post-roll, max length)
 mavric/outputs/   event-driven outputs: rules engine, devices (I/O Arduino, Intan RHX, MATLAB, program, UDP/TCP,
                  speakers)
 mavric/audio/     audio stream (PortAudio, mixer with limiter), recorder, sync edge detector, sound library and
-                 player, simulated interface, bench check; review side: source (reading, overview, spectrograms),
-                 detect (proposals, suggestions), events
+                 player, simulated interface, bench check, geometry (microphone and speaker positions), ranging
+                 (distances by sound, fit); review side: source (reading, overview, spectrograms), detect
+                 (proposals, suggestions), events
 mavric/sim.py     simulated cage for testing and demos (3D with several synthetic cameras)
 tests/           pytest suite (unit + simulated end-to-end + real-time headless run)
 tools/           make_overview.py, make_screenshots.py: the README pictures, from simulated data
@@ -913,8 +946,9 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 - **Camera drift check and 3D tracking** (lenses, camera positions and 3D places are built): check every session
   that the sync LED flashes where it should in every camera, and warn when a camera moved; later, frame-triggered
   capture for 3D tracking and pose.
-- **Microphone and speaker positions:** placed like the ROIs, with distances to each place, for graded emitter
-  suggestions and the stimulus level at each place.
+- **Graded emitter suggestions and the stimulus level at each place** (microphone and speaker positions are
+  built): rank the places by how well a sound event's arrival-time and level difference fit each place, and give
+  each speaker's level at each place.
 - **Automatic call classification,** trained on the labeled sound events.
 - **Playback schedules:** playlists and timed stimulus sequences (sounds play by hand or from RFID rules today).
 - **Speaker calibration:** level per speaker at the subjects' position.

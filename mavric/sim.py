@@ -264,6 +264,23 @@ class SimScene3D:
         """The true heights (mm) of the places' surfaces by antenna, and of the sync LED ("SYNC")."""
         return {**PERCH_Z_MM, "SYNC": LED_Z_MM}
 
+    def devices(self) -> dict:
+        """Where the simulated microphones and speakers really are: micA and micB above the cage's long midline at a
+        quarter and three quarters of its length, each facing a different side; a speaker beyond each corner,
+        aimed at the middle. Mostly outside the cameras' views."""
+        from .audio.geometry import Device, aim_at
+
+        (x0, y0), (x1, y1) = self.floor.min(axis=0)[:2], self.floor.max(axis=0)[:2]
+        mid = np.array([(x0 + x1) / 2, (y0 + y1) / 2, 200.0])
+        out = {}
+        for name, (x, y) in zip(("spk1", "spk2", "spk3", "spk4"),
+                                ((x0 - 120, y1 + 120), (x1 + 120, y1 + 120), (x0 - 120, y0 - 120), (x1 + 120, y0 - 120))):
+            p = np.array([x, y, 300.0])
+            out[name] = Device(name, "speaker", p, aim_at(p, mid))
+        for name, u, az in (("micA", 0.25, -90.0), ("micB", 0.75, 90.0)):
+            out[name] = Device(name, "mic", np.array([x0 + u * (x1 - x0), mid[1], 650.0]), (az, -35.0))
+        return out
+
     def surface(self, perch: int) -> np.ndarray:
         """A place's surface: its bar with a margin, at the bar's height."""
         x0, y0, x1, y1 = PERCH_RECTS[perch]

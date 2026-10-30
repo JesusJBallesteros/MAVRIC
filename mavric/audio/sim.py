@@ -22,6 +22,7 @@ from ..core import now
 from .config import AudioConfig
 
 NEAR = {"micA": (1, 3), "micB": (2, 4)}
+HIDDEN_LATENCY = 29  # samples: speaker -> microphone delay the simulated driver does not report (3D cage only)
 
 
 @dataclass
@@ -200,14 +201,40 @@ class SimAudioBackend:
         self._th = threading.Thread(target=self._run, daemon=True, name="audio-sim")
         self._th.start()
 
+    def paths(self) -> dict | None:
+        """With a 3D cage whose devices are placed (SimScene3D.devices): every speaker -> microphone path as
+        (delay samples, gain), the direct sound and its floor reflection, by distance and the microphone's cardioid
+        pickup. The delay includes HIDDEN_LATENCY, which the driver does not report (like converter latency)."""
+        scene = getattr(self.world, "scene", None)
+        if scene is None or not hasattr(scene, "devices"):
+            return None
+        from .geometry import cardioid_db
+
+        devs = scene.devices()
+        c, sr = 343.0, self.cfg.sample_rate  # mm per ms
+        out = {}
+        for o in range(self.cfg.n_out_open):
+            spk = devs.get(self.cfg.speakers.get(o + 1, ""))
+            for j in self.cfg.mic_indices:
+                mic = devs.get(self.cfg.names[j])
+                if spk is None or mic is None:
+                    return None
+                image = spk.position * np.array([1.0, 1.0, -1.0])  # the speaker mirrored in the floor
+                out[(o, j)] = [(2 * self.cfg.block + HIDDEN_LATENCY + np.linalg.norm(p - mic.position) / c * sr / 1e3,
+                                g * 0.3 * 1000.0 / np.linalg.norm(p - mic.position) * 10 ** (cardioid_db(mic, p) / 20))
+                               for p, g in ((spk.position, 1.0), (image, 0.45))]
+        return out
+
     def _run(self) -> None:
         c = self.cfg
         rate = c.sample_rate * (1 + self.m.drift_ppm * 1e-6)  # samples per world second
-        # speakers -> microphones: output buffered one block, input one block, plus 3 ms of air (+1.2 ms far side)
+        # speakers -> microphones: output buffered one block, input one block, plus 3 ms of air (+1.2 ms far side);
+        # in a 3D cage with placed devices, by distance instead (paths)
         n_out = c.n_out_open
         hist = np.zeros((4 * c.block + 1024, max(n_out, 1)), np.float32)
         delay = 2 * c.block + int(0.003 * c.sample_rate)
         far = int(self.m.far_delay_s * c.sample_rate)
+        paths = self.paths() if n_out else None
         k = 0
         while not self._stop.is_set():
             n = c.block
@@ -222,7 +249,14 @@ class SimAudioBackend:
                 return
             t = self.t_start + (k + np.arange(n)) / rate
             x = self.synth.render(t)
-            if n_out:
+            if paths is not None:
+                for (o, j), taps in paths.items():
+                    for d, g in taps:  # fractional delay: linear interpolation
+                        i0 = np.floor(k + np.arange(n) - d)
+                        u = (k + np.arange(n) - d - i0).astype(np.float32)
+                        i0 = i0.astype(np.int64)
+                        x[:, j] += g * ((1 - u) * hist[i0 % len(hist), o] + u * hist[(i0 + 1) % len(hist), o])
+            elif n_out:
                 for j in c.mic_indices:
                     side = 1 if c.names[j] == "micA" else 0  # odd speaker numbers stand on micA's side
                     for o in range(n_out):

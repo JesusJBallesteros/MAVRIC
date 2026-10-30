@@ -129,6 +129,7 @@ DEFAULT_RIG = {
         "max_level_dbfs": -6.0,  # playback limiter
         "display_fmax_hz": 10000,  # live spectrogram range
         "mic_near": {},  # mic name -> antennas next to it, e.g. {micA: [1, 3]}: ranks emitter suggestions
+        "temperature_c": 20.0,  # room temperature: the speed of sound for microphone and speaker positions
     },
     "paths": {
         "sessions_dir": "sessions",

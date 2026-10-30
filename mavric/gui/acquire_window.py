@@ -394,9 +394,15 @@ class AcquireWindow(QtWidgets.QMainWindow):
             cal = cals.get(c["id"])
             parts.append(f"{c['id']} " + (f"✓ {cal.rms_px:.2f} px" if cal is not None and cal.verdict()[0] else
                                            "✗" if cal is not None else "—") + (" ⌖" if c["id"] in poses else ""))
+        from ..audio.geometry import load_devices
+
+        devs, _ = load_devices(path)
+        if devs:
+            parts.append(f"{len(devs)} sound devices")
         self.cal_label.setText("  ·  ".join(parts))
         self.cal_label.setToolTip("Lens calibration per camera (✓ saved and passed, ✗ saved but failed, — none); "
-                                  "⌖ = its position is saved too. In config/calibration.yaml")
+                                  "⌖ = its position is saved too; then the microphones and speakers placed. In "
+                                  "config/calibration.yaml")
         if self._view_id not in (None, self.ctl.roi_camera):  # the places as the new calibration sees them
             self._show_rois()
 

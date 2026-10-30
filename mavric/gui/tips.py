@@ -19,7 +19,7 @@ ACQUIRE = {
                      "spectrograms, recording, and the Soundboard when speakers are configured",
     "Calibrate cameras…": "Calibrate each camera's lens, then where all cameras are, with the ChArUco board (and "
                           "its sticker sheet), saved in config/calibration.yaml; then each place's height, so every "
-                          "camera shows the places",
+                          "camera shows the places; then the microphones and speakers, checked by sound",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
     # ROIs
@@ -228,6 +228,16 @@ CALIBRATE = {
     "Use the true heights (simulation)": "Simulated cage only: give every place and the LED its true height",
     "Save places": "Save the ROIs with their heights to config/rois.json (like Save ROIs to rig); every camera's "
                    "live view, review and rendered video then show the places",
+    "Suggested layout": "Put the speakers at the corners around the places and the microphones above the long "
+                        "midline, as a start; then move each device to where it really is",
+    "Aim at the places": "Point every microphone and speaker at the middle of the places",
+    "True positions (simulation)": "Simulated cage only: put every device where it really is",
+    "Play and measure": "Play a short sweep on each speaker in turn (3 times) and measure when it reaches each "
+                        "microphone: the distances check the positions (audio connected, not recording)",
+    "Fit positions": "Move the ticked kind of device to agree with the measured distances, each held near its "
+                     "typed position; also finds the latency the driver does not report",
+    "Use the fitted positions": "Put the fitted positions into the table (Save devices keeps them)",
+    "Save devices": "Save the microphone and speaker positions to config/calibration.yaml (devices:)",
 }
 
 CALIBRATE_ATTR = {
