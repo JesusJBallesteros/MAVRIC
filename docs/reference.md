@@ -148,6 +148,33 @@ an ArUco marker.
   `rig.yaml`), each camera gets its own lens and place around the cage, and the board moves between poses that two
   of them see. With the lenses calibrated in tab 1, the positions come out within a few millimetres of the truth.
 
+**Places in 3D** (tab 3 of the dialog, `mavric/video/places.py`):
+- **Needs:** the ROI camera's lens and position, and positions saved with a floor origin (heights are measured from
+  it). The ROIs must be drawn at the image size the ROI camera was calibrated at.
+- **A place** is its polygon in the ROI camera, carried along that camera's rays onto the horizontal plane at its
+  height (`plane_z_mm`). Draw the outline of the surface the subjects stand on.
+  - **Box:** with `box_mm`, the place is the box that tall standing on its surface. In another camera its outline is
+    the outline of the whole box, so it covers a subject standing on the place.
+  - **The sync LED** is a point: its box's centre in the ROI camera, carried to the LED's height.
+- **Finding a height:**
+  - **Typed:** a measured height in mm.
+  - **Marked in two cameras:** a spot clicked in the ROI camera, then the same spot in another camera. After the
+    first click, the dashed line shows where that spot can be in the other cameras (its ray, bent by the lens). The
+    two rays are triangulated, and the spot's height becomes the place's height. Clicks whose rays pass more than
+    25 mm apart are refused.
+- **Every camera:** each placed camera shows each place it sees: in its live view, the *All cameras* view, review and
+  the rendered video. Places outside its view are left out. The ROI camera always shows the ROIs exactly as drawn,
+  and they are drawn and edited only there.
+- **Saved** in `config/rois.json`, per ROI: `plane_z_mm`, `box_mm` and `points3d` (the outline in the world, mm).
+  Editing a polygon and saving works the 3D outline out again from its height. Older files load unchanged (no
+  heights).
+- **Sessions:** a recording copies `config/calibration.yaml` into its folder, so its places can be shown from every
+  camera later. Each camera that sees the sync LED records its brightness (`led_mean`).
+- **Simulation:** with two or more synthetic cameras the simulated cage is 3D. Its perches stand at 160 and 320 mm
+  and its LED at 300 mm, and every camera sees them from its own place. *Use the true heights (simulation)* fills
+  them in.
+- **Not covered:** sloping or vertical surfaces (a place is a horizontal surface or a box on one).
+
 ### FLIR / Point Grey cameras (Chameleon3)
 
 The `flir` backend (`mavric/video/flir.py`) drives FLIR / Point Grey USB3 cameras through **Spinnaker** (PySpin).
@@ -418,9 +445,10 @@ so two cameras would both pick the same one.
 In the acquire window:
 - **Connect camera:** pick each camera in the *Camera* list and connect it.
 - **View:** chooses which connected camera is shown. *All cameras* shows every connected camera side by side for
-  monitoring: frame rate, recording, clips only, and a clip in progress. ROIs are only shown in the single view of
-  the first camera.
-- **ROIs:** they are drawn on the first camera of `rig.yaml`, whatever the connection order.
+  monitoring: frame rate, recording, clips only, and a clip in progress.
+- **ROIs:** they are drawn on the first camera of `rig.yaml`, whatever the connection order. Once the places are
+  placed in 3D (*Calibrate cameras…*, tab 3), the other cameras show them too, in their single view and in *All
+  cameras*.
 
 **How many cameras.** Measured on the cage PC (i7-11700K, one USB 3 controller), at 1280×1024 Mono8:
 - **Encoding:** the PC encodes about 330 frames/s in total. Plan for about **6 continuous cameras at 30 fps**,
@@ -606,8 +634,9 @@ length and SHA-1, so the exact stimulus is known later.
 - **Video:** place labels and RFID curation (below).
 - **Audio:** sound events.
 
-Options the session lacks are greyed out. `--annotator <initials>` skips the dialog, and `--only video|audio` limits
-the review to one.
+Options the session lacks are greyed out. With several continuous cameras, *Camera* chooses whose video to review
+(`--camera`); a camera other than the ROI camera shows the places placed in 3D, and the labels are the same.
+`--annotator <initials>` skips the dialog, and `--only video|audio` limits the review to one.
 
 **Without video** (an audio test, a session recorded without cameras, or Video unchecked):
 - **Playhead:** it runs on its own clock over the session; ←/→ step 10 ms.
@@ -737,8 +766,9 @@ Writes `analysis/` in the session folder:
 
 ### 4. Render and timeline
 
-**Annotated video:** `mavric render <session> [--start s] [--stop s]`, or *Render annotated video* in review, writes
-`analysis/annotated_<cam>.mp4`:
+**Annotated video:** `mavric render <session> [--start s] [--stop s] [--camera cam1]`, or *Render annotated video*
+in review, writes `analysis/annotated_<cam>.mp4`, from the ROI camera by default; another camera shows the places
+placed in 3D:
 - the ROIs, coloured by who RFID detects there, with RFID and label text, and disagreements in red;
 - with audio:
   - **The sound:** `--audio auto` (two mics as stereo), `stereo`, `mix`, `none` or one microphone's name. It is
@@ -793,6 +823,7 @@ sessions/<YYYYmmdd_HHMMSS>_<name>/
   session.json        start/stop (UTC + local), software versions, clock anchor, rig snapshot, cameras, audio
                       (channels, sounds library with SHA-1), clips, stats
   tags.csv rois.json  snapshot of the tag map and ROIs used
+  calibration.yaml    snapshot of the camera calibration (lenses, positions), if there is one
   rfid_raw.csv        host_t, segment, micros, arduino_us, kind, tag, reader, checksum_ok, raw
   cam0_raw_000.mkv …  raw video, lossless FFV1 chunks (~2 GB; .avi if uncompressed); cam0.mp4 when recording H.264
   cam0_compressed.mp4 made by `mavric compress` (H.264, every frame, constant rate)
@@ -828,11 +859,12 @@ mavric/rfid/      protocol (parse, EM4100 checksum, micros unwrap), serial threa
 mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthetic; IDS stub), recorder (raw
                  lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest,
                  calibration (ChArUco board, detection, lens calibration, simulated board), extrinsics (camera
-                 positions, triangulation, simulated multi-camera rig), sheet (sticker PDF)
+                 positions, triangulation, simulated multi-camera rig), places (3D places, their outline in every
+                 camera), sheet (sticker PDF)
 mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
                  sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling),
-                 calibration_dialog (Calibrate cameras)
+                 calibration_dialog and places_tab (Calibrate cameras)
 mavric/acquire.py acquisition controller (no GUI), event bus for presence changes
 mavric/triggers.py RFID-triggered clip rules (ring-buffer pre-roll, post-roll, max length)
 mavric/outputs/   event-driven outputs: rules engine, devices (I/O Arduino, Intan RHX, MATLAB, program, UDP/TCP,
@@ -840,16 +872,16 @@ mavric/outputs/   event-driven outputs: rules engine, devices (I/O Arduino, Inta
 mavric/audio/     audio stream (PortAudio, mixer with limiter), recorder, sync edge detector, sound library and
                  player, simulated interface, bench check; review side: source (reading, overview, spectrograms),
                  detect (proposals, suggestions), events
-mavric/sim.py     simulated cage for testing and demos
+mavric/sim.py     simulated cage for testing and demos (3D with several synthetic cameras)
 tests/           pytest suite (unit + simulated end-to-end + real-time headless run)
 tools/           make_overview.py, make_screenshots.py: the README pictures, from simulated data
 ```
 
 ## Not built yet
 
-- **3D places and ROIs in every camera** (lens and camera-position calibration are built): give each place a 3D
-  position and draw the ROIs in every camera, check for cameras that moved; later, frame-triggered capture for 3D
-  tracking and pose.
+- **Camera drift check and 3D tracking** (lenses, camera positions and 3D places are built): check every session
+  that the sync LED flashes where it should in every camera, and warn when a camera moved; later, frame-triggered
+  capture for 3D tracking and pose.
 - **Microphone and speaker positions:** placed like the ROIs, with distances to each place, for graded emitter
   suggestions and the stimulus level at each place.
 - **Automatic call classification,** trained on the labeled sound events.

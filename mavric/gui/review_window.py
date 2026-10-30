@@ -60,15 +60,18 @@ def session_end(sess: Session, P) -> float:
 
 
 class ReviewWindow(QtWidgets.QMainWindow):
-    def __init__(self, session: Session, annotator: str = "", video: bool = True, audio: bool = True):
-        """video / audio: what to review; each is used only if the session has it."""
+    def __init__(self, session: Session, annotator: str = "", video: bool = True, audio: bool = True,
+                 camera: str | None = None):
+        """video / audio: what to review; each is used only if the session has it. camera: whose video (default: the
+        ROI camera; another camera shows the places placed in 3D)."""
         super().__init__()
         self.sess = session
         self.annotator = annotator
-        self.setWindowTitle(f"MAVRIC - Review - {session.path.name}")
+        self.camera = camera if camera != session.roi_camera else None
+        self.setWindowTitle(f"MAVRIC - Review - {session.path.name}" + (f" - {camera}" if self.camera else ""))
         self.resize(1500, 950)
 
-        self.P = prepare(session)
+        self.P = prepare(session, cam_id=self.camera)
         self.tags = session.tags
         self.pigeons = self.tags.pigeons
         self.roi_objs = session.rois.perches
@@ -77,8 +80,8 @@ class ReviewWindow(QtWidgets.QMainWindow):
         self.audio_on = bool(audio and session.audio and self.P.audio is not None)
         self.labeling = self.video_on  # place labels and curation need the video to judge by
         if self.video_on:
-            self.src = open_session_video(session)  # raw chunks or a single video
-            fps = float(session.camera().get("fps", 30))
+            self.src = open_session_video(session, self.camera)  # raw chunks or a single video
+            fps = float(session.camera(self.camera).get("fps", 30))
             ft = self.P.frame_t if self.P.frame_t is not None else np.arange(self.src.n) / fps
             ft = ft[: self.src.n] if len(ft) >= self.src.n else ft
         else:
@@ -125,7 +128,7 @@ class ReviewWindow(QtWidgets.QMainWindow):
         self.video = None
         if self.video_on:
             self.video = VideoView()
-            self.video.load_rois(self.sess.rois, editable=False)
+            self.video.load_rois(self.sess.rois_in(self.camera), editable=False)
 
         self.plot = pg.PlotWidget()
         self.plot.setBackground("#fcfcfb")
@@ -809,6 +812,11 @@ class StartDialog(QtWidgets.QDialog):
         v = QtWidgets.QVBoxLayout(g)
         self.cb_video = QtWidgets.QCheckBox("Video: place labels and RFID curation")
         self.cb_audio = QtWidgets.QCheckBox("Audio: sound events")
+        self.cam_combo = QtWidgets.QComboBox()
+        self.cam_combo.setToolTip("Whose video to review. Other cameras than the ROI camera show the places placed in "
+                                  "3D (Calibrate cameras…, tab 3); the labels are the same")
+        for c in sess.cameras:
+            self.cam_combo.addItem(c["id"] + ("  (ROIs drawn here)" if c["id"] == sess.roi_camera else ""), c["id"])
         missing = []
         for cb, have, want, what in ((self.cb_video, bool(sess.cameras), video, "continuous video"),
                                      (self.cb_audio, sess.audio is not None, audio, "audio")):
@@ -817,6 +825,13 @@ class StartDialog(QtWidgets.QDialog):
             v.addWidget(cb)
             if not have:
                 missing.append(what)
+        if self.cam_combo.count() > 1:  # other cameras show the places placed in 3D
+            h = QtWidgets.QHBoxLayout()
+            h.addWidget(QtWidgets.QLabel("Camera"))
+            h.addWidget(self.cam_combo, 1)
+            v.addLayout(h)
+            self.cb_video.toggled.connect(self.cam_combo.setEnabled)
+            self.cam_combo.setEnabled(self.cb_video.isChecked())
         if missing:
             note = QtWidgets.QLabel(f"<small>Not in this session: {' and '.join(missing)}. "
                                     "The RFID timeline and the analysis are always available.</small>")
@@ -838,9 +853,14 @@ class StartDialog(QtWidgets.QDialog):
         """(initials, review video, review audio)"""
         return self.initials.text().strip(), self.cb_video.isChecked(), self.cb_audio.isChecked()
 
+    def camera(self) -> str | None:
+        """The camera whose video to review (None: the session has none)."""
+        return self.cam_combo.currentData()
 
-def main(session_path: str, annotator: str = "", only: str | None = None) -> None:
-    """only: "video" or "audio" reviews just that. With an annotator given, the start dialog is skipped."""
+
+def main(session_path: str, annotator: str = "", only: str | None = None, camera: str | None = None) -> None:
+    """only: "video" or "audio" reviews just that; camera: whose video (default: the ROI camera). With an annotator
+    given, the start dialog is skipped."""
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     if not session_path:
         session_path = QtWidgets.QFileDialog.getExistingDirectory(None, "Open session folder", "sessions")
@@ -853,6 +873,7 @@ def main(session_path: str, annotator: str = "", only: str | None = None) -> Non
         if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         annotator, video, audio = dlg.values()
-    win = ReviewWindow(sess, annotator, video=video, audio=audio)
+        camera = camera or dlg.camera()
+    win = ReviewWindow(sess, annotator, video=video, audio=audio, camera=camera)
     win.show()
     app.exec()

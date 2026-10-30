@@ -123,7 +123,8 @@ Every control explains itself when you hover over it.
 - the status line at the bottom shows no warnings.
 
 **All cameras at once.** Set *View → All cameras* to see each camera with its frame rate and recording state. A
-clip in progress shows as ● CLIP.
+clip in progress shows as ● CLIP. Once the places are placed in 3D ([Calibrate the cameras](#calibrate-the-cameras),
+step 5), every camera shows the places it sees, coloured by who is there, here and in its own live view.
 
 ![All cameras](docs/images/acquire_grid.png)
 
@@ -142,8 +143,8 @@ Add `--audio` and `--arm-outputs` as needed.
 ### Calibrate the cameras
 
 Calibration measures each camera's lens (focal length, image centre, distortion) and then where every camera is,
-in one shared frame in millimetres. It is the basis for drawing the place ROIs in every camera and, later, 3D
-tracking. It needs a **ChArUco board**: a checkerboard with an ArUco marker in every white square, so every corner can
+in one shared frame in millimetres. Then each place gets its height, so every camera shows the places, and it is the
+basis for 3D tracking later. It needs a **ChArUco board**: a checkerboard with an ArUco marker in every white square, so every corner can
 be identified even when part of the board is hidden.
 
 1. **The board.** Set its size in `config/rig.yaml` under `calibration: board:` (the default is 8 × 10 squares of
@@ -174,6 +175,19 @@ be identified even when part of the board is hidden.
      Then *Save positions*.
 
 ![Camera positions](docs/images/calibrate_positions.png)
+
+5. **Places in 3D** (tab 3, once the positions are saved with a floor origin). Each place is the outline drawn in the
+   ROI camera, lifted to its height above the floor. Draw it around what the subjects stand on (the perch top, the
+   platform), not around the bird.
+   - **Height:** type a measured height in mm, or *Mark in two cameras*: click a spot of the place's surface in the
+     ROI camera, then the same spot in another camera, on the dashed line. The sync LED needs the second click only.
+   - **Box:** a box height (e.g. 130 mm) makes the place the space above its surface, so in another camera it also
+     covers a subject standing on it.
+   - **Check:** the outlines must sit on the places in every camera. Then *Save places*: every camera's live view,
+     the *All cameras* view, review (`--camera`) and the rendered video (`--camera`) show them, and each camera
+     records the sync LED's brightness.
+
+![Places in 3D](docs/images/calibrate_places.png)
 
 A calibration holds while the lens, focus, zoom and image size stay the same. After changing the image size in
 *Video settings…*, calibrate again (the dialog warns). The simulated camera (`mavric acquire --sim`) shows a
@@ -333,9 +347,9 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 | Command | Does |
 |---|---|
 | `mavric acquire [--sim]` | acquisition window (`--headless --duration 60` records without a window) |
-| `mavric review <session>` | place labels, RFID curation, sound events (`--only video\|audio`) |
+| `mavric review <session>` | place labels, RFID curation, sound events (`--only video\|audio`, `--camera`) |
 | `mavric analyze <session>` | sync check, RFID vs labels, sounds, plots |
-| `mavric render <session>` | annotated video, with sound and a spectrogram strip |
+| `mavric render <session>` | annotated video, with sound and a spectrogram strip (`--camera`) |
 | `mavric timeline <session>` | audio and label tracks on the video's clock, for Audacity, Ethograph, BORIS |
 | `mavric compress <session or folder>` | `<name>_compressed.mp4` copies |
 | `mavric audio devices\|test\|sounds\|play` | audio interfaces, bench check, the sound library, play a sound |
@@ -369,7 +383,7 @@ stay on your computer.
 |---|---|---|
 | `rig.yaml` | RFID port, antennas → places, cameras, audio inputs and speakers, sync, paths | text editor |
 | `tags.csv` | tag ID → subject name and colour | text editor |
-| `rois.json` | place ROIs and the sync LED box | Acquire: *Save ROIs to rig* |
+| `rois.json` | place ROIs and the sync LED box, with their heights once placed in 3D | Acquire: *Save ROIs to rig*; *Calibrate cameras… → Save places* |
 | `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Video settings…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |

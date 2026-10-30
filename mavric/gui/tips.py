@@ -18,7 +18,8 @@ ACQUIRE = {
     "Connect audio": "Open the audio interface set in rig.yaml (audio:): level meters, sync pulse count, "
                      "spectrograms, recording, and the Soundboard when speakers are configured",
     "Calibrate cameras…": "Calibrate each camera's lens, then where all cameras are, with the ChArUco board (and "
-                          "its sticker sheet); saved in config/calibration.yaml",
+                          "its sticker sheet), saved in config/calibration.yaml; then each place's height, so every "
+                          "camera shows the places",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
     # ROIs
@@ -50,7 +51,8 @@ ACQUIRE = {
 ACQUIRE_ATTR = {
     "port_combo": "Serial port of the RFID Arduino MEGA (SIM = simulated cage, auto = first Arduino found)",
     "cam_combo": "Cameras from rig.yaml: id, backend, serial, recording mode. The first one carries the ROIs.",
-    "view_combo": "Camera shown in the live view; 'All cameras' shows every connected camera side by side",
+    "view_combo": "Camera shown in the live view; 'All cameras' shows every connected camera side by side. The "
+                  "other cameras show the places placed in 3D",
     "table": "Tag read at each place antenna and for how long",
     "events": "Arrivals, departures and output actions, newest first",
     "name_edit": "Session name, used in the folder name",
@@ -220,6 +222,12 @@ CALIBRATE = {
                                    "edge, z up)",
     "Compute positions": "Place every camera in one frame from the snapshots (each lens must be calibrated)",
     "Save positions": "Save the camera positions to config/calibration.yaml (the lens calibrations are kept)",
+    "Mark in two cameras": "Find the selected place's height: click a spot of its surface in the ROI camera, then "
+                           "the same spot in another camera (on the dashed line). The sync LED needs the second click "
+                           "only",
+    "Use the true heights (simulation)": "Simulated cage only: give every place and the LED its true height",
+    "Save places": "Save the ROIs with their heights to config/rois.json (like Save ROIs to rig); every camera's "
+                   "live view, review and rendered video then show the places",
 }
 
 CALIBRATE_ATTR = {

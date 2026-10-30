@@ -10,7 +10,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..acquire import AcquisitionController, simulation_controller, stall_text
-from ..config import Roi, project_root, resolve_path
+from ..config import Roi, RoiSet, project_root, resolve_path
 from ..core import now
 from ..rfid.serial_reader import Presence, list_ports
 from .camera_grid import CameraGrid
@@ -37,12 +37,15 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self._roi_size = None  # image size of the ROI camera, for saving ROIs while another camera is shown
         self._last_roi_grab = -1
         self._view_id = None
+        self._rois_shown = None  # camera whose ROIs the live view holds (the ROI camera's are editable)
+        self._draft: RoiSet | None = None  # the ROI camera's ROIs as edited, while another camera is shown
         self.meters = None
         self.spec = None
         self._workers: list[Worker] = []
 
         self.video = VideoView()
         self.video.load_rois(ctl.rois, editable=False)
+        self._rois_shown = ctl.roi_camera
         self.setCentralWidget(self._build_layout())
         self.presence_sig.connect(self._on_presence)
         ctl.bus.subscribe("presence", lambda p: self.presence_sig.emit(p))
@@ -91,7 +94,8 @@ class AcquireWindow(QtWidgets.QMainWindow):
         f.addWidget(self.b_cam, 1, 3)
         self.view_combo = QtWidgets.QComboBox()
         self.view_combo.setToolTip("Connected camera shown in the live view. ROIs are drawn on "
-                                   f"{self.ctl.roi_camera} (the first camera in rig.yaml).")
+                                   f"{self.ctl.roi_camera} (the first camera in rig.yaml); the other cameras show the "
+                                   "places placed in 3D (Calibrate cameras…, tab 3).")
         self.view_combo.currentIndexChanged.connect(self._view_changed)
         f.addWidget(QtWidgets.QLabel("View"), 3, 0)
         f.addWidget(self.view_combo, 3, 1, 1, 2)
@@ -393,6 +397,8 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.cal_label.setText("  ·  ".join(parts))
         self.cal_label.setToolTip("Lens calibration per camera (✓ saved and passed, ✗ saved but failed, — none); "
                                   "⌖ = its position is saved too. In config/calibration.yaml")
+        if self._view_id not in (None, self.ctl.roi_camera):  # the places as the new calibration sees them
+            self._show_rois()
 
     def _refresh_views(self, select: str | None = None) -> None:
         cur = select or self._view_id
@@ -401,7 +407,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         for cid in self.ctl.cams:
             self.view_combo.addItem(cid + ("  (ROIs)" if cid == self.ctl.roi_camera else ""), cid)
         if len(self.ctl.cams) >= 2:
-            self.view_combo.addItem("All cameras (monitor, no ROIs)", GRID)
+            self.view_combo.addItem("All cameras", GRID)
         i = self.view_combo.findData(cur)
         if i < 0:
             i = self.view_combo.findData(self.ctl.roi_camera)
@@ -417,10 +423,55 @@ class AcquireWindow(QtWidgets.QMainWindow):
         if grid:
             self.grid.set_cameras(list(self.ctl.cams))
         on_rois = self._view_id in (None, self.ctl.roi_camera)
-        self.video.set_rois_visible(on_rois)
         if not on_rois:
             self.cb_edit.setChecked(False)
         self.cb_edit.setEnabled(on_rois)
+        self._show_rois()
+
+    def current_rois(self) -> RoiSet:
+        """The ROI camera's ROIs as they are now: drawn and edited, saved or not."""
+        if self._rois_shown == self.ctl.roi_camera:
+            return self.video.roiset(self._roi_size)
+        return self._draft if self._draft is not None else self.ctl.rois
+
+    def _show_rois(self) -> None:
+        """The live view (and the grid) shows the ROIs of the camera on show: as drawn in the ROI camera, the places'
+        3D outlines in the others."""
+        rs = self.current_rois()
+        if self._rois_shown == self.ctl.roi_camera:
+            self._draft = rs
+        roi_cam = self.ctl.roi_camera
+        cid = self._view_id if self._view_id not in (None, GRID) else roi_cam
+        if cid == roi_cam:
+            self.video.load_rois(rs, editable=self.cb_edit.isChecked())
+            self._draft = None
+        else:
+            self.video.load_rois(self.ctl.rois_in(cid, rs), editable=False)
+        self._rois_shown = cid
+        if self._view_id == GRID:
+            for c in self.ctl.cams:
+                self.grid.set_rois(c, self.ctl.rois_in(c, rs))
+
+    def set_rois(self, rs: RoiSet, save: bool = False) -> None:
+        """New ROIs for the ROI camera (e.g. with their 3D heights from Calibrate cameras…), shown and optionally
+        saved."""
+        self.ctl.rois = rs
+        if self._rois_shown == self.ctl.roi_camera:
+            self.video.load_rois(rs, editable=self.cb_edit.isChecked())
+        else:
+            self._draft = rs
+        self._show_rois()
+        if save:
+            path = resolve_path(self.rig["paths"]["rois_file"])
+            rs.save(path)
+            self.statusBar().showMessage(f"Saved {len(rs.rois)} ROIs to {path}", 5000)
+
+    def _rois_3d(self) -> RoiSet:
+        """The current ROIs, each place's 3D outline worked out again from its height (polygons may have been
+        edited)."""
+        from ..video.places import refresh_3d
+
+        return refresh_3d(self.current_rois(), self.ctl.camera_models()[0].get(self.ctl.roi_camera))
 
     def _on_roi_camera(self) -> bool:
         if self._view_id not in (None, self.ctl.roi_camera):
@@ -578,7 +629,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
     def _save_rois(self) -> None:
         if not self._on_roi_camera():
             return
-        rs = self.video.roiset(self._roi_size)
+        rs = self._rois_3d()
         self.ctl.rois = rs
         path = resolve_path(self.rig["paths"]["rois_file"])
         rs.save(path)
@@ -601,7 +652,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         if self.ctl.rfid is None and not self.ctl.cams and self.ctl.audio is None:
             message(self, "Nothing to record", "Connect the RFID reader, a camera or the audio interface first.")
             return
-        rs = self.video.roiset(self._roi_size)
+        rs = self._rois_3d()
         if len(rs.perches) < len(self.antennas):
             r = QtWidgets.QMessageBox.question(
                 self, "ROIs incomplete",
@@ -660,10 +711,10 @@ class AcquireWindow(QtWidgets.QMainWindow):
             tag = pres.get(ant, "")
             pig = self.ctl.tags.name(tag) if tag else ""
             name = self.antennas[ant]
-            if tag:
-                self.video.set_roi_state(name, self.ctl.tags.color(pig), 4, f"{name}: {pig}")
-            else:
-                self.video.set_roi_state(name, GRAY, 2, name)
+            state = (self.ctl.tags.color(pig), 4, f"{name}: {pig}") if tag else (GRAY, 2, name)
+            self.video.set_roi_state(name, *state)
+            if self._view_id == GRID:
+                self.grid.set_roi_state(name, *state)
             self.table.item(i, 1).setText(pig)
             self.table.item(i, 1).setIcon(swatch(self.ctl.tags.color(pig)) if tag else QtGui.QIcon())
             self.table.item(i, 2).setText(tag)
@@ -724,7 +775,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
             if cid in clips:
                 parts.append(f"● CLIP {clips[cid]:.0f} s")
             if cid == self.ctl.roi_camera:
-                parts.append("ROIs")
+                parts.append("ROIs drawn here")
             err = c.get("error")
             stall = None if err else stall_text(c)
             if err:
@@ -735,7 +786,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
                                   alert=bool(err or stall or c.get("rec_dropped")))
 
     def _update_led(self, img: np.ndarray) -> None:
-        sync = self.video.roiset().sync
+        sync = self.current_rois().sync
         if sync is None:
             self.led_label.setText("Sync LED box: not drawn")
             return

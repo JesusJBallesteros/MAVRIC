@@ -34,6 +34,11 @@ PERCH_RECTS = {  # antenna -> (x0, y0, x1, y1) of the perch bar
 }
 LED_RECT = (600, 16, 620, 36)
 FLOOR = (220, 160, 420, 440)  # free-moving area
+PERCH_Z_MM = {1: 320.0, 2: 320.0, 3: 160.0, 4: 160.0}  # 3D scene (SimScene3D): height of each bar's top, mm
+LED_Z_MM = 300.0
+BIRD_MM = (100.0, 70.0, 45.0)  # 3D scene: body length, width, height of the body's centre above what it stands on
+PLAN_MM_PER_PX = 1.25  # 3D scene: the plan picture laid on the floor
+PLAN_CENTRE_MM = (156.0, -195.0)  # where the simulated rig's cameras look
 SYNC_PULSE_S = 0.080
 
 
@@ -56,6 +61,7 @@ class SimWorld:
     seed: int = 0
     t0_abs: float | None = None  # host monotonic time of world t=0 (real-time mode)
     _phase: dict = field(default_factory=dict)
+    scene: "SimScene3D | None" = None  # several synthetic cameras: the cage in 3D, seen from each
 
     # ------------------------------------------------------------------ generation
     @classmethod
@@ -147,6 +153,15 @@ class SimWorld:
         x0, y0, x1, _ = PERCH_RECTS[perch]
         return (x0 + x1) / 2 + 6 * math.sin(0.7 * t + len(pigeon)), y0 - 16
 
+    def height(self, pigeon: str, t: float) -> float:
+        """Height (mm) of what the pigeon stands on: its perch, the floor, or in between while flying."""
+        fly = 0.4
+        v = self._near_visit(pigeon, t, pad=fly)
+        if v is None:
+            return 0.0
+        a = (v.start - t) / fly if t < v.start else (t - v.stop) / fly if t >= v.stop else 0.0
+        return (1 - a) * PERCH_Z_MM[v.perch]
+
     def position(self, pigeon: str, t: float) -> tuple[float, float]:
         fly = 0.4  # s to fly between floor and perch
         v = self._near_visit(pigeon, t, pad=fly)
@@ -163,7 +178,10 @@ class SimWorld:
         return self._floor_pos(pigeon, t)
 
     # ------------------------------------------------------------------ rendering
-    def render(self, t: float, noise: bool = True) -> np.ndarray:
+    def render(self, t: float, noise: bool = True, cam: str | None = None) -> np.ndarray:
+        """A plan of the cage; with a 3D scene attached, the cage seen by camera `cam` from its place."""
+        if self.scene is not None and cam is not None and cam in self.scene.cams:
+            return self.scene.render(t, cam, noise)
         w, h = self.image_size
         img = np.full((h, w, 3), 70, np.uint8)
         cv2.rectangle(img, (20, 20), (w - 20, h - 20), (95, 95, 95), -1)
@@ -182,7 +200,14 @@ class SimWorld:
             img = cv2.add(img, rng.integers(0, 6, img.shape, dtype=np.uint8))
         return img
 
+    def attach_rig(self, rig, roi_camera: str) -> "SimScene3D":
+        """Give the cage a 3D shape seen by the simulated cameras of `rig` (a SimulatedRig); see SimScene3D."""
+        self.scene = SimScene3D(self, rig, roi_camera)
+        return self.scene
+
     def roi_set(self, antennas: dict[int, str]) -> RoiSet:
+        if self.scene is not None:
+            return self.scene.roi_set(antennas)
         rois = []
         for k, (x0, y0, x1, y1) in PERCH_RECTS.items():
             pts = [(x0 - 10, y0 - 40), (x1 + 10, y0 - 40), (x1 + 10, y1 + 8), (x0 - 10, y1 + 8)]
@@ -199,6 +224,151 @@ class SimWorld:
                 for v in self.visits
             ]
         )
+
+
+
+
+class SimScene3D:
+    """The simulated cage in 3D, seen by several synthetic cameras (a SimulatedRig), each from its own place.
+
+    The cage is the plan of the one-camera simulation laid on the floor
+    (PLAN_MM_PER_PX, centred where the rig's cameras look), with the perch bars
+    at PERCH_Z_MM, the sync LED on a post at LED_Z_MM and the pigeons standing on
+    the floor or on a bar. Its default ROIs are the places' surfaces as the ROI
+    camera sees them; placed at the true heights, they sit on the perches in
+    every camera.
+    """
+
+    def __init__(self, world: SimWorld, rig, roi_camera: str):
+        from .video.places import CameraModel
+
+        self.world, self.rig, self.roi_camera = world, rig, roi_camera
+        self.cams = {cid: CameraModel(cid, lens.K, np.asarray(lens.dist, float).ravel(), rig.T[cid], tuple(lens.size))
+                     for cid, lens in rig.lenses.items()}
+        w, h = world.image_size
+        self.floor = self.plan([(20, 20), (w - 20, 20), (w - 20, h - 20), (20, h - 20)], 0.0)
+        self.perches = {k: self.plan([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], PERCH_Z_MM[k])
+                        for k, (x0, y0, x1, y1) in PERCH_RECTS.items()}
+        x0, y0, x1, y1 = LED_RECT
+        self.led = self.plan([((x0 + x1) / 2, (y0 + y1) / 2)], LED_Z_MM)[0]
+
+    def plan(self, uv, z: float) -> np.ndarray:
+        """World points (mm) of plan points (pixels of the one-camera picture) at height z."""
+        w, h = self.world.image_size
+        uv = np.asarray(uv, float).reshape(-1, 2)
+        return np.column_stack([PLAN_CENTRE_MM[0] + (uv[:, 0] - w / 2) * PLAN_MM_PER_PX,
+                                PLAN_CENTRE_MM[1] + (h / 2 - uv[:, 1]) * PLAN_MM_PER_PX, np.full(len(uv), z)])
+
+    @staticmethod
+    def truth() -> dict:
+        """The true heights (mm) of the places' surfaces by antenna, and of the sync LED ("SYNC")."""
+        return {**PERCH_Z_MM, "SYNC": LED_Z_MM}
+
+    def surface(self, perch: int) -> np.ndarray:
+        """A place's surface: its bar with a margin, at the bar's height."""
+        x0, y0, x1, y1 = PERCH_RECTS[perch]
+        return self.plan([(x0 - 10, y0 - 14), (x1 + 10, y0 - 14), (x1 + 10, y1 + 14), (x0 - 10, y1 + 14)],
+                         PERCH_Z_MM[perch])
+
+    def roi_set(self, antennas: dict[int, str]) -> RoiSet:
+        """The places' surfaces and the LED's box as the ROI camera sees them (not yet placed in 3D)."""
+        cam = self.cams[self.roi_camera]
+        rois = []
+        for k in PERCH_RECTS:
+            p, _ = cam.project(self.surface(k))
+            rois.append(Roi(antennas.get(k, f"Place{k}"), [(round(float(x), 1), round(float(y), 1)) for x, y in p],
+                            antenna=k, kind="perch"))
+        p, _ = cam.project([self.led])
+        r = 2.5 * float(cam.K[0, 0]) * 12 / float(cam.to_camera(self.led)[0, 2])
+        x, y = float(p[0, 0]), float(p[0, 1])
+        rois.append(Roi("SYNC", [(x - r, y - r), (x + r, y - r), (x + r, y + r), (x - r, y + r)], kind="sync"))
+        return RoiSet(rois, cam.size)
+
+    def bird(self, pigeon: str, t: float) -> np.ndarray:
+        """The pigeon's body centre in the world (mm)."""
+        x, y = self.world.position(pigeon, t)
+        v = self.world.visit_at(pigeon, t)
+        if v is not None:  # sitting on the bar
+            y = (PERCH_RECTS[v.perch][1] + PERCH_RECTS[v.perch][3]) / 2
+        return self.plan([(x, y)], self.world.height(pigeon, t) + BIRD_MM[2])[0]
+
+    @staticmethod
+    def _px(cam, X) -> tuple[np.ndarray, np.ndarray]:
+        Xc = cam.to_camera(X)
+        front = Xc[:, 2] > 10.0
+        p, _ = cv2.projectPoints(np.where(front[:, None], Xc, 1.0).reshape(-1, 1, 3), np.zeros(3), np.zeros(3), cam.K,
+                                 cam.dist)
+        return p.reshape(-1, 2), front
+
+    def _poly(self, img, cam, X, color, edge=None, step: int = 10) -> None:
+        P = np.asarray(X, float)
+        dense = np.array([P[i] + u * (P[(i + 1) % len(P)] - P[i]) for i in range(len(P))
+                          for u in np.linspace(0, 1, step, endpoint=False)])
+        p, ok = self._px(cam, dense)
+        if ok.sum() < 3:
+            return
+        pts = np.round(p[ok] * 16).astype(np.int32)
+        cv2.fillPoly(img, [pts], color, cv2.LINE_AA, shift=4)
+        if edge is not None:
+            cv2.polylines(img, [pts], True, edge, 1, cv2.LINE_AA, shift=4)
+
+    def _line(self, img, cam, X, color, width: int = 1) -> None:
+        p, ok = self._px(cam, X)
+        if ok.all():
+            cv2.polylines(img, [np.round(p).astype(np.int32)], False, color, width, cv2.LINE_AA)
+
+    def render(self, t: float, cid: str, noise: bool = True) -> np.ndarray:
+        cam = self.cams[cid]
+        w, h = cam.size
+        img = np.full((h, w, 3), 70, np.uint8)
+        self._poly(img, cam, self.floor, (95, 95, 95), step=20)
+        (x0, y0), (x1, y1) = self.floor.min(axis=0)[:2], self.floor.max(axis=0)[:2]
+        for gx in np.arange(np.ceil(x0 / 100) * 100, x1, 100):  # a floor grid, for depth
+            self._line(img, cam, [(gx, y, 0.0) for y in np.linspace(y0, y1, 30)], (86, 86, 86))
+        for gy in np.arange(np.ceil(y0 / 100) * 100, y1, 100):
+            self._line(img, cam, [(x, gy, 0.0) for x in np.linspace(x0, x1, 30)], (86, 86, 86))
+        items = [(top.mean(axis=0), ("perch", top)) for top in self.perches.values()]
+        items += [(X, ("bird", pg, X)) for pg in self.world.pigeons for X in [self.bird(pg, t)]]
+        items.append((self.led, ("led",)))
+        f = float(cam.K[0, 0])
+        for depth, it in sorted(((float(cam.to_camera(X)[0, 2]), it) for X, it in items), key=lambda d: -d[0]):
+            if depth <= 10:
+                continue
+            if it[0] == "perch":
+                top = it[1]
+                bottom = top - np.array([0.0, 0.0, 22.0])
+                for end in ((bottom[0] + bottom[3]) / 2, (bottom[1] + bottom[2]) / 2):  # posts down to the floor
+                    self._line(img, cam, [end, (end[0], end[1], 0.0)], (40, 52, 66), max(1, int(round(f * 10 / depth))))
+                for a, b in ((0, 1), (1, 2), (2, 3), (3, 0)):  # the bar's sides, then its top
+                    self._poly(img, cam, [top[a], top[b], bottom[b], bottom[a]], (30, 52, 82))
+                self._poly(img, cam, top, (40, 70, 110), edge=(25, 40, 60))
+            elif it[0] == "bird":
+                _, pg, X = it
+                p, ok = self._px(cam, X)
+                if not ok[0]:
+                    continue
+                c = self.world.colors.get(pg, "#999999").lstrip("#")
+                bgr = (int(c[4:6], 16), int(c[2:4], 16), int(c[0:2], 16))
+                ax = (max(2, int(f * BIRD_MM[0] / 2 / depth)), max(2, int(f * BIRD_MM[1] / 2 / depth)))
+                ctr = (int(round(p[0, 0])), int(round(p[0, 1])))
+                cv2.ellipse(img, ctr, ax, 0, 0, 360, bgr, -1, cv2.LINE_AA)
+                cv2.ellipse(img, ctr, ax, 0, 0, 360, (20, 20, 20), 1, cv2.LINE_AA)
+            else:
+                self._line(img, cam, [self.led - (0, 0, 25.0), (self.led[0], self.led[1], 0.0)], (40, 40, 40),
+                           max(1, int(round(f * 8 / depth))))
+                p, ok = self._px(cam, self.led)
+                if not ok[0]:
+                    continue
+                r = max(2, int(round(f * 12 / depth)))
+                c = np.round(p[0]).astype(int)
+                cv2.rectangle(img, (int(c[0] - 2 * r), int(c[1] - 2 * r)), (int(c[0] + 2 * r), int(c[1] + 2 * r)),
+                              (30, 30, 30), -1)
+                cv2.rectangle(img, (int(c[0] - r), int(c[1] - r)), (int(c[0] + r), int(c[1] + r)),
+                              (255, 255, 255) if self.world.led_on(t) else (45, 45, 45), -1)
+        if noise:
+            rng = np.random.default_rng((int(t * 1000) + zlib.crc32(cid.encode())) & 0xFFFFFFFF)
+            img = cv2.add(img, rng.integers(0, 6, img.shape, dtype=np.uint8))
+        return img
 
 
 # --------------------------------------------------------------------------- RFID model

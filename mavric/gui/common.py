@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import traceback
+from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -102,6 +103,8 @@ class _RoiGraphics:
 class VideoView(pg.GraphicsLayoutWidget):
     """Camera image with perch ROIs (polygons) and a sync-LED ROI (rectangle)."""
 
+    clicked = QtCore.Signal(float, float)  # image point of a left click, while click_mode is on
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setBackground(self.palette().color(QtGui.QPalette.ColorRole.Window))
@@ -110,8 +113,39 @@ class VideoView(pg.GraphicsLayoutWidget):
         self.vb.addItem(self.img)
         self.rois: dict[str, _RoiGraphics] = {}
         self.editable = False
+        self.click_mode = False
+        self._guides: list = []
         self._has_image = False
         self._size = None
+        self.scene().sigMouseClicked.connect(self._on_click)
+
+    def _on_click(self, ev) -> None:
+        if not self.click_mode or ev.button() != QtCore.Qt.MouseButton.LeftButton or self.img.image is None:
+            return
+        p = self.vb.mapSceneToView(ev.scenePos())
+        h, w = self.img.image.shape[:2]
+        if 0 <= p.x() < w and 0 <= p.y() < h:
+            ev.accept()
+            self.clicked.emit(float(p.x()), float(p.y()))
+
+    def set_guides(self, curves=(), points=(), color: str = "#eda100") -> None:
+        """Dashed curves (n, 2) and cross marks over the image (e.g. where a spot clicked in another camera can be)."""
+        for it in self._guides:
+            self.vb.removeItem(it)
+        self._guides = []
+        for c in curves:
+            if len(c) >= 2:
+                it = pg.PlotCurveItem(c[:, 0], c[:, 1], pen=pg.mkPen(color, width=2, style=QtCore.Qt.PenStyle.DashLine))
+                it.setZValue(12)
+                self.vb.addItem(it)
+                self._guides.append(it)
+        if len(points):
+            pts = np.asarray(points, float).reshape(-1, 2)
+            it = pg.ScatterPlotItem(pts[:, 0], pts[:, 1], symbol="+", size=18, pen=pg.mkPen(color, width=2),
+                                    brush=None)
+            it.setZValue(12)
+            self.vb.addItem(it)
+            self._guides.append(it)
 
     def set_image(self, img: np.ndarray) -> None:
         size = img.shape[:2]
@@ -151,7 +185,7 @@ class VideoView(pg.GraphicsLayoutWidget):
             g.set_editable(editable)
 
     def roiset(self, image_size: tuple[int, int] | None = None) -> RoiSet:
-        rois = [Roi(g.roi.name, g.points(), g.roi.antenna, g.roi.kind) for g in self.rois.values()]
+        rois = [replace(g.roi, points=g.points()) for g in self.rois.values()]  # keeps the 3D settings
         return RoiSet(rois, image_size or self.image_size())
 
     def set_roi_state(self, name: str, color: str, width: float, text: str) -> None:

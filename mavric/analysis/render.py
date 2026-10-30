@@ -239,17 +239,17 @@ def render_annotated(P, labels: pd.DataFrame | None = None, out_path: str | Path
                      t_range: tuple[float, float] | None = None,
                      progress: Callable[[float], None] | None = None, audio: str = "auto",
                      spectrogram: bool = True, span_s: float = 6.0, fmax: float | None = None) -> Path:
-    """Annotated copy of the first camera's video; with audio, also the sound (`audio`: auto, stereo, mix, none or a
-    microphone name) and the spectrogram strip, up to `fmax` Hz (default: rig.yaml audio.display_fmax_hz, as in
-    review)."""
+    """Annotated copy of the video of P's camera (prepare(..., cam_id); default the ROI camera), with the places it
+    sees; with audio, also the sound (`audio`: auto, stereo, mix, none or a microphone name) and the spectrogram strip,
+    up to `fmax` Hz (default: rig.yaml audio.display_fmax_hz, as in review)."""
     sess = P.session
-    rois = sess.rois.perches
+    rois = sess.rois_in(P.cam_id).perches  # other cameras: the places placed in 3D, as that camera sees them
     names = [r.name for r in rois]
     rfid = IntervalLookup(P.bouts, names)
     manual = IntervalLookup(labels, names) if labels is not None and len(labels) else None
     tags = sess.tags
-    cam = sess.camera()
-    src = open_session_video(sess)  # raw chunks or a single video file
+    cam = sess.camera(P.cam_id)
+    src = open_session_video(sess, P.cam_id)  # raw chunks or a single video file
     n = src.n
     frame_t = P.frame_t if P.frame_t is not None else np.arange(n) / float(cam.get("fps", 30))
     i0, i1 = 0, min(n, len(frame_t))

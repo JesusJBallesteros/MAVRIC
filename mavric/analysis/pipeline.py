@@ -30,6 +30,7 @@ class Prepared:
     sync: dict
     health: dict
     audio: object | None = None  # AudioTimeMap: audio sample -> session time
+    cam_id: str | None = None  # the camera whose frames these are (None: the ROI camera)
 
     @property
     def rois(self) -> list[str]:
@@ -55,7 +56,7 @@ def prepare(sess: Session, gap_s: float = 0.5, min_dur_s: float = 0.0, cam_id: s
         from .audio_sync import synchronise_audio
 
         audio_map, sy["report"]["audio"] = synchronise_audio(sess, raw, sy["rfid_fits"], sy["offset_s"])
-    return Prepared(sess, raw, frames, sy["frame_t"], samples, bouts, sy, health, audio_map)
+    return Prepared(sess, raw, frames, sy["frame_t"], samples, bouts, sy, health, audio_map, cam_id)
 
 
 def apply_curation(sess: Session, bouts: pd.DataFrame) -> pd.DataFrame:

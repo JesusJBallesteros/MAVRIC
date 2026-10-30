@@ -74,7 +74,7 @@ def cmd_acquire(args):
 def cmd_review(args):
     from .gui.review_window import main as gui_main
 
-    gui_main(args.session, annotator=args.annotator, only=args.only)
+    gui_main(args.session, annotator=args.annotator, only=args.only, camera=args.camera)
 
 
 def cmd_analyze(args):
@@ -150,7 +150,7 @@ def cmd_render(args):
     from .session import Session
 
     sess = Session.open(args.session)
-    P = prepare(sess)
+    P = prepare(sess, cam_id=args.camera)
     rng = (args.start, args.stop) if args.stop else None
     p = render_annotated(P, load_labels(sess), t_range=rng, audio=args.audio, spectrogram=not args.no_spectrogram,
                          span_s=args.span, fmax=args.fmax,
@@ -745,6 +745,8 @@ def main(argv=None):
     r.add_argument("session")
     r.add_argument("--annotator", default="", help="your initials; skips the start dialog")
     r.add_argument("--only", choices=["video", "audio"], help="review only the video or only the audio")
+    r.add_argument("--camera", default=None, help="the camera to review (default: the ROI camera); other cameras show "
+                   "the places placed in 3D")
     r.set_defaults(fn=cmd_review)
 
     z = sub.add_parser("analyze", help="sync, bouts, comparison, plots")
@@ -767,6 +769,8 @@ def main(argv=None):
     v.add_argument("--span", type=float, default=6.0, help="seconds shown in the spectrogram strip")
     v.add_argument("--fmax", type=float, default=None, help="top of the spectrogram strip, Hz "
                    "(default: audio.display_fmax_hz in rig.yaml, as in review)")
+    v.add_argument("--camera", default=None, help="the camera to render (default: the ROI camera); other cameras show "
+                   "the places placed in 3D")
     v.set_defaults(fn=cmd_render)
 
     tl = sub.add_parser("timeline", help="video-aligned audio and label tracks for Audacity, Ethograph, BORIS")

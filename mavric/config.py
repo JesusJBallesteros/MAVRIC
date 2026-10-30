@@ -261,6 +261,9 @@ class Roi:
     points: list[tuple[float, float]]  # polygon vertices in image pixels (x, y)
     antenna: int | None = None  # firmware reader number; None for the sync-LED ROI
     kind: str = "perch"  # "perch" | "sync"
+    plane_z_mm: float | None = None  # 3D: height of the place's surface (or of the sync LED) above the floor, mm
+    box_mm: float = 0.0  # 3D: the place is the box this tall standing on its surface (0: the surface only)
+    points3d: list[tuple[float, float, float]] | None = None  # 3D outline in the calibration's world (mm)
 
     def bbox(self) -> tuple[int, int, int, int]:
         xs = [p[0] for p in self.points]
@@ -286,6 +289,9 @@ class RoiSet:
                 points=[tuple(p) for p in r["points"]],
                 antenna=r.get("antenna"),
                 kind=r.get("kind", "perch"),
+                plane_z_mm=r.get("plane_z_mm"),
+                box_mm=float(r.get("box_mm") or 0.0),
+                points3d=[tuple(p) for p in r["points3d"]] if r.get("points3d") else None,
             )
             for r in d.get("rois", [])
         ]

@@ -169,8 +169,7 @@ def test_calibration_dialog_on_the_simulated_camera(tmp_path):
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     rig = load_rig()
-    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp_path), "outputs_file": str(tmp_path / "o.yaml"),
-                    "calibration_file": str(tmp_path / "calibration.yaml")}
+    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp_path), "outputs_file": str(tmp_path / "o.yaml")}
     ctl = simulation_controller(rig, seed=1)
     win = AcquireWindow(ctl, sim=True)
     ctl.connect_camera(ctl.rig["cameras"][0])
@@ -187,7 +186,7 @@ def test_calibration_dialog_on_the_simulated_camera(tmp_path):
         dlg._calibrated(cal)
         assert "px RMS" in dlg.result_label.text() and dlg.b_save.isEnabled()
         dlg._save()
-        assert load_calibrations(tmp_path / "calibration.yaml")["cam0"].n_views == cal.n_views
+        assert load_calibrations(ctl.rig["paths"]["calibration_file"])["cam0"].n_views == cal.n_views
         assert "cam0 " in win.cal_label.text()
         dlg.close()
     finally:
@@ -278,8 +277,7 @@ def test_positions_tab_on_simulated_cameras(tmp_path):
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     rig = load_rig()
-    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp_path), "outputs_file": str(tmp_path / "o.yaml"),
-                    "calibration_file": str(tmp_path / "calibration.yaml")}
+    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp_path), "outputs_file": str(tmp_path / "o.yaml")}
     rig["cameras"] = [{"id": c, "backend": "synthetic", "fps": 30} for c in ("cam0", "cam1")]
     ctl = simulation_controller(rig, seed=1)
     win = AcquireWindow(ctl, sim=True)
@@ -291,7 +289,7 @@ def test_positions_tab_on_simulated_cameras(tmp_path):
             app.processEvents()
         dlg = CalibrationDialog(win)
         for cid in ctl.cams:  # skip tab 1: the simulated lenses as they are
-            save_lens(tmp_path / "calibration.yaml", dlg._rig().lens_truth(cid))
+            save_lens(ctl.rig["paths"]["calibration_file"], dlg._rig().lens_truth(cid))
         dlg.tabs.setCurrentIndex(1)
         dlg._lens_status()
         assert dlg.lens_status.text().count("✓") == 2
@@ -306,7 +304,7 @@ def test_positions_tab_on_simulated_cameras(tmp_path):
         assert "PASS" in dlg.pos_result.text() or "FAIL" in dlg.pos_result.text()
         assert "of its true position" in dlg.pos_result.text() and dlg.pos_plot.pixmap() is not None
         dlg._save_positions()
-        assert set(load_poses(tmp_path / "calibration.yaml")[0]) == {"cam0", "cam1"}
+        assert set(load_poses(ctl.rig["paths"]["calibration_file"])[0]) == {"cam0", "cam1"}
         assert "⌖" in win.cal_label.text()
         dlg.close()
     finally:

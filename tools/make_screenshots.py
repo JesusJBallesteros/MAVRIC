@@ -144,12 +144,6 @@ def main() -> None:
                    (group(win, "Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)"), 7),
                    (win.video, 8), (win.spec, 9), (button(win, "Help"), 10)],
              OUT / "acquire.png", scale=0.8)
-    win.view_combo.setCurrentIndex(win.view_combo.findData(GRID))
-    win.resize(1500, 760)
-    pump(app, 1.5)
-    win.grid.grab().save(str(OUT / "acquire_grid.png"))
-    print("wrote docs/images/acquire_grid.png")
-    win.view_combo.setCurrentIndex(win.view_combo.findData("cam0"))
 
     dlg = OutputsDialog(win, ctl)
     dlg.resize(1000, 380)
@@ -189,7 +183,27 @@ def main() -> None:
     pump(app, 0.8)
     annotate(cd, [(cd.pos_views["cam0"], 1), (group(cd, "Snapshots"), 2), (group(cd, "World origin"), 3),
                   (group(cd, "Positions"), 4), (cd.pos_plot, 5)], OUT / "calibrate_positions.png", scale=0.75)
+    cd._save_positions()
+    cd.tabs.setCurrentIndex(2)  # places in 3D: the true heights, then P1 being marked in two cameras
+    pl = cd.places
+    pl._use_truth()
+    pl.table.selectRow(0)
+    pump(app, 1.0)
+    pl._toggle_mark()
+    X = ctl.world.scene.perches[1][0]  # a corner of P1's bar, as cam0 sees it
+    p0, _ = pl.cams["cam0"].project([X])
+    pl._clicked("cam0", float(p0[0, 0]), float(p0[0, 1]))
+    pump(app, 0.8)
+    annotate(cd, [(pl.views["cam0"], 1), (pl.views["cam1"], 2), (group(cd, "Places"), 3)],
+             OUT / "calibrate_places.png", scale=0.75)
+    pl._end_mark()
+    pl._save()
     cd.close()
+    win.view_combo.setCurrentIndex(win.view_combo.findData(GRID))  # every camera with the places it sees
+    win.resize(1500, 760)
+    pump(app, 1.5)
+    win.grid.grab().save(str(OUT / "acquire_grid.png"))
+    print("wrote docs/images/acquire_grid.png")
     win.close()
     ctl.shutdown()
 

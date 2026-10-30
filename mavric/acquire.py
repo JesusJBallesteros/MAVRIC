@@ -160,6 +160,28 @@ class AcquisitionController:
         cams = self.rig.get("cameras") or []
         return cams[0].get("id", "cam0") if cams else None
 
+    def camera_models(self) -> tuple[dict, dict]:
+        """Lens and position of every calibrated camera and the `world:` section of calibration.yaml (reloaded when
+        the file changes)."""
+        from .video.places import load_cameras
+
+        path = resolve_path(self.rig["paths"].get("calibration_file", "config/calibration.yaml"))
+        stamp = path.stat().st_mtime_ns if path.exists() else None
+        if getattr(self, "_cal_stamp", -1) != stamp:
+            self._cal_stamp = stamp
+            self._cal_models = load_cameras(path) if stamp is not None else ({}, {})
+        return self._cal_models
+
+    def rois_in(self, cam_id: str, rois: RoiSet | None = None) -> RoiSet:
+        """The ROIs (default: the current ones) as seen by a camera: as drawn in the ROI camera, the places' 3D
+        outlines in the others."""
+        from .video.places import rois_in_camera
+
+        rs = rois if rois is not None else self.rois
+        if cam_id == self.roi_camera:
+            return rs
+        return rois_in_camera(rs, cam_id, self.camera_models()[0], self.roi_camera)
+
     def set_clip_rules(self, cfg: OutputsConfig | None) -> None:
         """Clip rules = rig.yaml `triggers` + outputs.yaml `clips` (the GUI's, which win on equal names).
 
@@ -304,12 +326,12 @@ class AcquisitionController:
         sess = Session.create(rig["paths"]["sessions_dir"], name, rig, self.tags, self.rois, anchor, notes)
         if self.rfid is not None:
             self.rfid.attach_writer(sess.file(RFID_FILE), t0)
-        sync = self.rois.sync
         led_bboxes = {}
         for cid, th in self.cams.items():
             be = th.backend
             on_rois = cid == self.roi_camera  # ROIs are drawn on the first camera of rig.yaml
-            led_bbox = sync.bbox() if (sync is not None and on_rois) else None
+            sync = self.rois_in(cid).sync  # other cameras: the LED's 3D box seen from there, if placed
+            led_bbox = sync.bbox() if sync is not None else None
             led_bboxes[cid] = led_bbox
             info = {**be.info(), "record": th.record_mode, "led_bbox": led_bbox, "rois_camera": on_rois}
             if th.record_mode == "continuous":
@@ -497,21 +519,36 @@ def disk_warning(folder, cams: dict, vcfg: dict, min_hours: float = 2.0) -> str 
 
 
 def simulation_controller(rig: dict, duration_s: float = 3600, seed: int = 0) -> AcquisitionController:
-    """Controller wired to a simulated cage (synthetic camera + simulated Arduino)."""
+    """Controller wired to a simulated cage (synthetic cameras + simulated Arduino).
+
+    With two synthetic cameras or more, the cage is 3D and each camera sees it from its own place (SimScene3D); its
+    ROIs and camera calibration are kept apart from the one-camera simulation's (sessions/_sim3d_*)."""
     from .sim import RfidModel, SimulatedArduino, SimWorld
 
     tags = TagMap.load(rig["paths"]["tags_file"])
     world = SimWorld.random(tags.pigeons, {p: tags.color(p) for p in tags.pigeons}, duration_s, seed,
                             mean_dwell_s=12, mean_away_s=8)
-    rois = RoiSet.load(rig["paths"]["rois_file"])
-    if not rois.rois or rois.image_size != tuple(world.image_size):
-        rois = world.roi_set(rig["antennas"])
     rig = dict(rig)
     if not rig["cameras"] or any(c.get("backend") != "synthetic" for c in rig["cameras"]):
         rig["cameras"] = [{"id": "cam0", "backend": "synthetic", "fps": 30}]
     rig["rfid"] = {**rig["rfid"], "port": "SIM"}
     rig["audio"] = {**rig["audio"], "host_api": "sim", "device": "simulated"}
-    rig["paths"] = {**rig["paths"], "rois_file": str(resolve_path(rig["paths"]["sessions_dir"]) / "_sim_rois.json")}
+    sim_dir = resolve_path(rig["paths"]["sessions_dir"])
+    if len(rig["cameras"]) >= 2:  # several cameras see one cage in 3D, each from its own place
+        from .video.calibration import BoardSpec
+        from .video.extrinsics import SimulatedRig
+
+        sim_rig = SimulatedRig(BoardSpec.from_rig(rig), {c["id"]: tuple(world.image_size) for c in rig["cameras"]},
+                               near=1.0)
+        world.attach_rig(sim_rig, rig["cameras"][0]["id"])
+        rois_file, cal_file = sim_dir / "_sim3d_rois.json", sim_dir / "_sim3d_calibration.yaml"
+        rois = RoiSet.load(rois_file)
+    else:
+        rois_file, cal_file = sim_dir / "_sim_rois.json", sim_dir / "_sim_calibration.yaml"
+        rois = RoiSet.load(rig["paths"]["rois_file"])
+    if not rois.rois or rois.image_size != tuple(world.image_size):
+        rois = world.roi_set(rig["antennas"])
+    rig["paths"] = {**rig["paths"], "rois_file": str(rois_file), "calibration_file": str(cal_file)}
     ctl = AcquisitionController(rig, tags, rois)
     ctl.world = world
     ctl._sim_source = SimulatedArduino(world, tags, RfidModel(boot_offset_s=0.0))

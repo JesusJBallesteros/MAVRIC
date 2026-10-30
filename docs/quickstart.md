@@ -43,7 +43,7 @@ C:\Code\MAVRIC\
     examples\             templates shipped with MAVRIC
     rig.yaml              devices, places, cameras, audio, sync, paths        you edit it
     tags.csv              tag ID → subject name and colour                    you edit it
-    rois.json             place ROIs and the sync LED box                     written by Acquire
+    rois.json             place ROIs and the sync LED box (and heights)       written by Acquire
     video.yaml            camera and recording settings                       written by Video settings…
     outputs.yaml          output devices, rules, camera clip rules            written by Outputs…
     sound_types.yaml      sound event types                                   written by Types… (review)
@@ -221,13 +221,14 @@ You rarely edit these by hand:
 
 | File | Written by | Holds |
 |---|---|---|
-| `rois.json` | Acquire → *Save ROIs to rig* | one polygon per place (on the first camera's image) and the sync LED box |
+| `rois.json` | Acquire → *Save ROIs to rig*; *Calibrate cameras…* → *Save places* | one polygon per place (on the first camera's image) and the sync LED box; once placed in 3D, their heights and outlines in mm |
 | `video.yaml` | Acquire → *Video settings… → Save* | camera settings and the recording format; they override `rig.yaml` |
 | `outputs.yaml` | Acquire → *Outputs… → Save & restart outputs* | output devices, rules, camera clip rules |
 | `sound_types.yaml` | Review → Sound events → *Types…* | the list of sound event types (F1–F9) |
 | `calibration.yaml` | Acquire → *Calibrate cameras…* → *Save* / *Save positions* | each camera's lens (focal length, image centre, distortion, error, date) and position in mm; `calibration/` keeps the board corners of the views used |
 
-Every session keeps a copy of the tag map and the ROIs it used, so later edits don't change old sessions.
+Every session keeps a copy of the tag map, the ROIs and the camera calibration it used, so later edits don't change
+old sessions.
 
 ### 3.4 The sounds folder
 
@@ -387,6 +388,7 @@ R and Python read it directly.
 sessions/20261029_101500_demo/
   session.json             setup, clock, devices, statistics
   tags.csv, rois.json      the tag map and ROIs used
+  calibration.yaml         the camera calibration used (if there is one)
   rfid_raw.csv             every line from the RFID Arduino
   cam0_raw_000.mkv …       video (raw, lossless), or cam0.mp4 (H.264)
   frames_cam0.csv          the time of every frame

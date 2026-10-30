@@ -1,4 +1,5 @@
-"""Calibrate cameras: each camera's lens, then all cameras' positions, from live views of the ChArUco board."""
+"""Calibrate cameras: each camera's lens, then all cameras' positions, from live views of the ChArUco board; then
+the places in 3D."""
 
 from __future__ import annotations
 
@@ -167,6 +168,11 @@ class CalibrationDialog(QtWidgets.QDialog):
         v.addWidget(self.status)
 
         self._build_positions_tab()
+        from .places_tab import PlacesTab
+
+        self.places = PlacesTab(self)
+        self.tabs.addTab(self.places, "3 · Places in 3D")
+        self.tabs.currentChanged.connect(lambda i: self.places.activate() if i == 2 else None)
         QtGui.QShortcut(QtGui.QKeySequence("Space"), self, activated=self._space)
         from .tips import CALIBRATE, CALIBRATE_ATTR, apply_tips
 
@@ -220,6 +226,9 @@ class CalibrationDialog(QtWidgets.QDialog):
 
     def _rig(self) -> SimulatedRig:
         """One simulated rig for all synthetic cameras: own lenses, own positions, one board."""
+        scene = getattr(self.ctl.world, "scene", None)
+        if self.sim_rig is None and scene is not None:  # the simulated cage's own cameras
+            self.sim_rig = scene.rig
         if self.sim_rig is None:
             sizes = {}
             for cid, th in self.ctl.cams.items():
@@ -232,6 +241,9 @@ class CalibrationDialog(QtWidgets.QDialog):
     def _tick(self) -> None:
         if self.tabs.currentIndex() == 1:
             self._tick_positions()
+            return
+        if self.tabs.currentIndex() == 2:
+            self.places.tick()
             return
         if time.monotonic() - self._last_t < 0.066:  # detection at most ~15 times a second
             return
@@ -592,7 +604,7 @@ class CalibrationDialog(QtWidgets.QDialog):
     def _space(self) -> None:
         if self.tabs.currentIndex() == 1:
             self._capture_snapshot()
-        else:
+        elif self.tabs.currentIndex() == 0:
             self._capture_now()
 
     def closeEvent(self, ev) -> None:

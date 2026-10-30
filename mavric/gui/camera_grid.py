@@ -1,4 +1,4 @@
-"""All connected cameras side by side, for monitoring (no ROIs)."""
+"""All connected cameras side by side, for monitoring, with the ROIs each camera sees."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import math
 import pyqtgraph as pg
 from PySide6 import QtGui
 
-from .common import RED, qcolor, to_rgb
+from .common import RED, _RoiGraphics, qcolor, to_rgb
 
 
 class CameraGrid(pg.GraphicsLayoutWidget):
@@ -36,7 +36,23 @@ class CameraGrid(pg.GraphicsLayoutWidget):
             label = pg.TextItem(cid, anchor=(0, 0), color="#ffffff", fill=qcolor("#0b0b0b", 170))
             label.setZValue(10)
             vb.addItem(label)
-            self.tiles[cid] = {"vb": vb, "img": img, "label": label, "last": -1, "shape": None, "alert": False}
+            self.tiles[cid] = {"vb": vb, "img": img, "label": label, "last": -1, "shape": None, "alert": False,
+                               "rois": {}}
+
+    def set_rois(self, cid: str, roiset) -> None:
+        """The ROIs drawn on a tile, in the camera's full-size image coordinates."""
+        t = self.tiles.get(cid)
+        if t is None:
+            return
+        for g in t["rois"].values():
+            g.remove(t["vb"])
+        t["rois"] = {r.name: _RoiGraphics(t["vb"], r, False) for r in (roiset.rois if roiset is not None else [])}
+
+    def set_roi_state(self, name: str, color: str, width: float, text: str) -> None:
+        for t in self.tiles.values():
+            g = t["rois"].get(name)
+            if g is not None:
+                g.set_state(color, width, text)
 
     def update_tile(self, cid: str, frame, text: str, alert: bool = False) -> None:
         t = self.tiles.get(cid)
@@ -51,6 +67,7 @@ class CameraGrid(pg.GraphicsLayoutWidget):
             t["img"].setImage(to_rgb(im), autoLevels=False, levels=(0, 255))
             if t["shape"] != im.shape[:2]:
                 t["shape"] = im.shape[:2]
+                t["img"].setTransform(QtGui.QTransform.fromScale(k, k))  # shown smaller, in full-size coordinates
                 t["vb"].autoRange(padding=0.01)
         t["label"].setText(text)
         if alert != t["alert"]:

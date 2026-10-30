@@ -471,12 +471,13 @@ class SimulatedRig:
         ((-560.0, 420.0, 600.0), (60.0, -120.0, 180.0)),  # back left, nearer
     ]
 
-    def __init__(self, spec: BoardSpec, sizes: dict[str, tuple[int, int]], seed: int = 0):
+    def __init__(self, spec: BoardSpec, sizes: dict[str, tuple[int, int]], seed: int = 0, near: float | None = None):
         self.spec = spec
         self.rng = np.random.default_rng(seed + 77)
         self.lenses: dict[str, SimulatedLens] = {}
         self.T: dict[str, np.ndarray] = {}
-        near = float(np.clip(min(s[0] for s in sizes.values()) / 1024, 0.6, 1.0))  # small images: come closer
+        if near is None:  # small images: come closer
+            near = float(np.clip(min(s[0] for s in sizes.values()) / 1024, 0.6, 1.0))
         for k, (cid, size) in enumerate(sizes.items()):
             w = size[0]
             self.lenses[cid] = SimulatedLens(spec, size, f_px=w * (1.05 + 0.08 * k),

@@ -5,6 +5,7 @@ Layout::
     sessions/<YYYYmmdd_HHMMSS>_<name>/
         session.json          metadata, clock anchor, rig snapshot, camera info, stats
         tags.csv  rois.json   snapshot of the tag map and ROIs used
+        calibration.yaml      snapshot of the camera calibration (lenses, positions), if there is one
         rfid_raw.csv          every serial line (host_t = s since session start)
         cam0.mp4              video, PTS = frame_idx / nominal fps
         frames_cam0.csv       true per-frame timing (host + camera hardware clock)
@@ -30,6 +31,7 @@ from . import __version__
 from .config import RoiSet, TagMap, resolve_path
 
 RFID_FILE = "rfid_raw.csv"
+CALIBRATION_FILE = "calibration.yaml"
 LABELS_FILE = "manual_labels.csv"
 COVERAGE_FILE = "label_coverage.csv"
 CURATION_FILE = "rfid_curation.csv"
@@ -81,6 +83,9 @@ class Session:
         s = cls(folder, meta)
         tags.save(folder / "tags.csv")
         rois.save(folder / "rois.json")
+        cal = resolve_path(rig["paths"].get("calibration_file", "config/calibration.yaml"))
+        if cal.exists():
+            shutil.copy2(cal, folder / CALIBRATION_FILE)
         s.save_meta()
         return s
 
@@ -159,6 +164,24 @@ class Session:
     @property
     def rois(self) -> RoiSet:
         return RoiSet.load(self.path / "rois.json")
+
+    @property
+    def roi_camera(self) -> str | None:
+        """The camera the ROIs were drawn on."""
+        cams = self.meta.get("cameras", [])
+        roi = [c for c in cams if c.get("rois_camera")]
+        return (roi or self.cameras or cams or [{}])[0].get("id")
+
+    def rois_in(self, cam_id: str | None = None) -> RoiSet:
+        """The ROIs in a camera: as drawn in the ROI camera, the places' 3D outlines seen from any other camera
+        calibrated in this session's calibration.yaml (places it does not see are left out)."""
+        rs = self.rois
+        if cam_id is None or cam_id == self.roi_camera:
+            return rs
+        from .video.places import load_cameras, rois_in_camera
+
+        cams, _ = load_cameras(self.path / CALIBRATION_FILE)
+        return rois_in_camera(rs, cam_id, cams, self.roi_camera)
 
     @property
     def antennas(self) -> dict[int, str]:

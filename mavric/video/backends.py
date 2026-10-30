@@ -190,7 +190,7 @@ class SyntheticCamera(CameraBackend):
         if self._rng.random() < self.drop_prob:
             return None  # camera-side drop: counter advances, no frame delivered
         t_world = exposure_mid - self._world_t0
-        img = self.world.render(t_world)
+        img = self.world.render(t_world, cam=self.cfg.get("id"))
         ticks = int((exposure_mid - self._t_start) * 1e9 * (1 + self.drift_ppm * 1e-6))
         line = int(self.world.led_on(t_world))
         return Frame(img, now(), self._next_idx(), hw_ticks=ticks, hw_counter=self._counter - 1, line_status=line)
