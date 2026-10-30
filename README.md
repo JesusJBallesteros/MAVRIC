@@ -3,7 +3,7 @@
 **Multimodal Audio-Video-RFID Interaction and Control.** A behavioural suite: synchronized video, audio and RFID
 identification of individual subjects, with event-driven outputs for task control and interaction.
 
-Version 0.9.0 · MIT licence · Windows 10/11 · Python 3.12
+Version 0.9.5 · MIT licence · Windows 10/11 · Python 3.12
 
 ![MAVRIC: RFID, cameras, microphones and a sync pulse on one clock; outputs on RFID events; review, analysis and compression afterwards](docs/images/overview.svg)
 

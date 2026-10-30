@@ -334,6 +334,9 @@ are image CRC, frame counter, offsets, size, exposure, gain and black level. So 
 
 Every frame-triggered camera exposes on the same pulse, so their frames are taken together: what 3D tracking and pose
 need. The RFID MEGA makes the pulses in hardware (Timer5), at the rate set in `rig.yaml`.
+- **Why D46:** it is Timer5's output pin, so the timer itself switches it on the exact tick. Other pins, such as
+  the spare D48, can only be switched by the program, and the reader software holds the processor for up to about
+  1 ms at a time, so their edges would wander.
 
 **Wiring** (each camera)
 1. MEGA **GND → pin 7 (OPTO_GND)**, *before* any signal.

@@ -25,6 +25,7 @@ import platform
 import re
 import shutil
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -112,7 +113,14 @@ class Session:
             tmp = self.path / "session.json.tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.meta, f, indent=2, default=str)
-            tmp.replace(self.path / "session.json")
+            for attempt in range(20):  # Windows: a virus scanner or indexer may hold session.json for a moment
+                try:
+                    tmp.replace(self.path / "session.json")
+                    return
+                except PermissionError:
+                    if attempt == 19:
+                        raise
+                    time.sleep(0.05)
 
     def add_camera(self, info: dict) -> None:
         with self._lock:
