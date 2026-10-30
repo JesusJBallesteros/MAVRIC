@@ -117,6 +117,14 @@ def run_analysis(
         P.audio.knots().to_csv(out / "audio_time_knots.csv", index=False)
     with open(out / "sync_report.json", "w") as f:
         json.dump(_jsonable({**P.sync["report"], "stream_health": P.health}), f, indent=2)
+    positions = None
+    if sess.cameras:  # did a camera move? (its reference view against pictures spread over the recording)
+        from ..video.drift import check_lines, session_check
+
+        pos = session_check(sess)
+        with open(out / "camera_positions.json", "w") as f:
+            json.dump(_jsonable(pos), f, indent=2)
+        positions = check_lines(pos)
 
     rfid_used = P.bouts
     if use_curated and "curated" in rfid_used:
@@ -130,6 +138,8 @@ def run_analysis(
         "rfid_time_budget_s": time_budget(rfid_used, rois).round(2).to_dict(orient="index"),
         "params": {"bin_s": bin_s, "gap_s": gap_s, "tol_s": tol_s, "use_curated": use_curated},
     }
+    if positions is not None:
+        summary["camera_positions"] = positions
     tb = time_budget(rfid_used, rois)
     tb.to_csv(out / "time_budget_rfid.csv")
 

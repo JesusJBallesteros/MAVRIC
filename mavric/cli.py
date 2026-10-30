@@ -99,6 +99,8 @@ def cmd_analyze(args):
                   f"-> {'PASS' if led.get('pass') else 'FAIL'}")
         else:
             print(f"  LED/SYNC: not validated ({led['n_led']} LED onsets, {led['n_sync']} SYNC lines)")
+    for line in s.get("camera_positions") or []:
+        print(f"  camera {line}")
     au = sy.get("audio")
     if au:
         pu = au["pulses"]

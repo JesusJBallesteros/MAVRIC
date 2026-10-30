@@ -147,6 +147,8 @@ class AcquisitionController:
         self.player = None  # audio Player on the speakers (connect_audio, when speakers are configured)
         self._audio_rec = None
         self.world = None  # SimWorld in simulation mode
+        self._refs: dict = {}  # camera -> (file stamp, drift.Reference)
+        self.positions: dict[str, list] = {}  # camera -> its last few drift.Shift measurements
         try:
             clip_cfg = self.load_outputs_config()
         except (OSError, ValueError) as e:  # a broken outputs.yaml must not stop acquisition
@@ -171,6 +173,54 @@ class AcquisitionController:
             self._cal_stamp = stamp
             self._cal_models = load_cameras(path) if stamp is not None else ({}, {})
         return self._cal_models
+
+    # ------------------------------------------------------------------ camera positions (drift)
+    @property
+    def calibration_path(self):
+        return resolve_path(self.rig["paths"].get("calibration_file", "config/calibration.yaml"))
+
+    def reference(self, cam_id: str):
+        """The camera's reference view (drift.Reference), reloaded when its file changes; None without one."""
+        from .video.drift import load_reference, reference_path
+
+        p = reference_path(self.calibration_path, cam_id)
+        stamp = p.stat().st_mtime_ns if p.exists() else None
+        if cam_id not in self._refs or self._refs[cam_id][0] != stamp:
+            self._refs[cam_id] = (stamp, load_reference(self.calibration_path, cam_id) if stamp else None)
+            self.positions.pop(cam_id, None)
+        return self._refs[cam_id][1]
+
+    def take_reference(self, cam_id: str):
+        """The camera's view now becomes its reference view."""
+        from .video.drift import save_reference
+
+        th = self.cams.get(cam_id)
+        if th is None or th.latest is None:
+            raise RuntimeError(f"{cam_id}: no picture yet")
+        return save_reference(self.calibration_path, cam_id, th.latest.image)
+
+    def check_positions(self, cams=None, keep: int = 3) -> dict:
+        """Measure the connected cameras (default all) against their reference views: {camera: the steady one of the
+        last `keep` measurements}. While recording, a camera whose level changes is noted in the session."""
+        from .video.drift import measure, steady
+
+        out = {}
+        for cid in cams or list(self.cams):
+            th, ref = self.cams.get(cid), self.reference(cid)
+            if th is None or ref is None or th.latest is None:
+                continue
+            hist = self.positions.setdefault(cid, [])
+            prev = steady(hist)
+            hist.append(measure(ref, th.latest.image))
+            del hist[:-keep]
+            out[cid] = s = steady(hist)
+            if self.session is not None and prev is not None and s.level != prev.level and s.level != "unknown":
+                row = {"t_s": round(self.elapsed(), 1), "camera": cid, **s.as_dict()}
+                self.session.meta.setdefault("position_checks", []).append(row)
+                self.session.save_meta()
+                if s.level != "ok":
+                    self.bus.publish("status", {"source": "session", "warning": f"{cid} {s.text()}"})
+        return out
 
     def rois_in(self, cam_id: str, rois: RoiSet | None = None) -> RoiSet:
         """The ROIs (default: the current ones) as seen by a camera: as drawn in the ROI camera, the places' 3D
@@ -362,7 +412,7 @@ class AcquisitionController:
                                    "playback_latency_samples": self.audio.play_offset})
             self.audio.attach(arec)
             self._audio_rec = arec
-        warnings = []
+        warnings = self._positions_at_start(sess)
         w = disk_warning(sess.path, self.cams, video_cfg(self.rig))
         if w:
             warnings.append(w)
@@ -389,6 +439,31 @@ class AcquisitionController:
             self.triggers = tm
         self.bus.publish("status", {"source": "session", "recording": True, "path": str(sess.path)})
         return sess
+
+    def _positions_at_start(self, sess: Session) -> list[str]:
+        """Each recording camera against its reference view (taken now when it has none: the places and the position
+        saved last belong to this view); noted in the session, warnings for the ones that moved."""
+        from .video.drift import copy_references
+
+        warnings, taken = [], []
+        for cid, th in self.cams.items():
+            if th.latest is None:
+                continue
+            if self.reference(cid) is None:
+                self.take_reference(cid)
+                taken.append(cid)
+                continue
+            s = self.check_positions([cid]).get(cid)
+            if s is not None:
+                sess.update_camera(cid, position_check=s.as_dict())
+                if s.level in ("shifted", "moved"):
+                    warnings.append(f"{cid} {s.text()}: the places drawn on it are off by that much (acquire window: "
+                                    "Alignment overlay)")
+        if taken:
+            copy_references(self.calibration_path, sess.path)
+            sess.meta["reference_views_taken"] = taken
+            sess.save_meta()
+        return warnings
 
     def stop_recording(self) -> Session | None:
         if not self.recording:

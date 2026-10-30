@@ -220,6 +220,40 @@ an ArUco marker.
   suggested layout to within about 15 mm. `mavric simulate --audio --places-3d` writes a session whose places,
   microphones and speakers are in 3D, with calls that reach each microphone by distance and pickup.
 
+**Did a camera move?** (`mavric/video/drift.py`; the acquire window's *Position*, *Alignment overlay* and *New
+reference*):
+- **The reference view:** one grayscale picture per camera, `calibration/reference_<cam>.png` next to
+  `calibration.yaml`. It is the view the ROIs and the camera position were made for.
+  - *Save ROIs to rig* removes the ROI camera's reference; *Save positions* removes those of the cameras placed.
+  - A camera without a reference gets one at the start of the next recording, noted in `session.json`
+    (`reference_views_taken`). *New reference* takes it by hand.
+  - Sessions copy the references next to their `calibration.yaml`.
+- **The measurement:** the picture now against the reference, as a rotation + shift (+ scale).
+  1. The whole pictures are aligned (ECC, coarse to fine, at most 480 px wide). Moving birds hardly count, and a
+     change of light not at all.
+  2. ORB details are matched near where that alignment puts them, a few per part of the picture, with and without
+     the parts that changed (birds that moved), and fitted with RANSAC. Repeating structures (identical perches,
+     wire mesh) are fine, because each detail is only looked for nearby.
+  3. Of these alignments, the one under which the picture's edges agree best counts.
+  The result is how far the picture's corners and middle moved at most, against its diagonal: under 0.5 % in place,
+  under 2 % *shifted a little*, else *moved*. It takes about 0.1 s per picture.
+- **While acquiring:** every connected camera every 10 s, in the background. The middle of the last three
+  measurements counts, so one picture with a bird close to the lens does not warn.
+  - At the start of a recording each camera is noted in the session (`cameras[].position_check`); a camera not in
+    place adds a warning.
+  - While recording, each change of level is noted (`position_checks`: `t_s`, `camera`, the shift) and shown in the
+    status line.
+  - Review shows these at the top of its side panel.
+- **Alignment overlay:** the reference's edges (Canny) in magenta over the live picture of the camera shown. An
+  arrow goes from where the middle of the picture is to where it belongs, and the status line gives the shift
+  (measured about once a second).
+- **Analysis:** `mavric analyze` measures 7 pictures spread over each camera's recording. A camera counts as moved
+  from the first of the pictures after which every one says so (the middle of the last three decides), reported as
+  "since between m:ss and m:ss". It also says whether the sync LED still flashes in its box. Details are in
+  `analysis/camera_positions.json`.
+- **Simulation:** `SimWorld.moved[camera] = (dx px, dy px, degrees, from t)` bumps a simulated camera;
+  `simulate_session(camera_moved=...)` does it in an offline session.
+
 ### FLIR / Point Grey cameras (Chameleon3, Blackfly S)
 
 The `flir` backend (`mavric/video/flir.py`) drives FLIR / Point Grey USB3 cameras through **Spinnaker** (PySpin).
@@ -808,6 +842,7 @@ Writes `analysis/` in the session folder:
 | File | Content |
 |---|---|
 | `sync_report.json` | Clock fits (offset, drift ppm, latency), LED/SYNC match and residuals, stream health (dropped rounds, bad lines, checksum failures, unknown tags) |
+| `camera_positions.json` | Each camera against its reference view: 7 pictures over the recording, the level (in place, shifted, moved) and since when, whether the sync LED flashes in its box, and what acquisition measured |
 | `rfid_samples.csv`, `rfid_bouts.csv` | Tag reads on the session timeline; bouts per subject × place |
 | `comparison_bins.csv`, `accuracy_per_roi.csv`, `accuracy_per_pigeon.csv`, `confusion_seconds.csv`, `event_matching.csv` | RFID vs labels |
 | `time_budget_*.csv`, `transitions_rfid.csv` | Time per subject per place, place-to-place moves |
@@ -909,6 +944,7 @@ sessions/<YYYYmmdd_HHMMSS>_<name>/
                       (channels, sounds library with SHA-1), clips, stats
   tags.csv rois.json  snapshot of the tag map and ROIs used
   calibration.yaml    snapshot of the calibration (lenses, camera positions, microphones and speakers), if any
+  calibration/        each camera's reference view (reference_<cam>.png): did it move?
   rfid_raw.csv        host_t, segment, micros, arduino_us, kind, tag, reader, checksum_ok, raw
   cam0_raw_000.mkv …  raw video, lossless FFV1 chunks (~2 GB; .avi if uncompressed); cam0.mp4 when recording H.264
   cam0_compressed.mp4 made by `mavric compress` (H.264, every frame, constant rate)
@@ -945,7 +981,7 @@ mavric/video/     camera backends (Basler, FLIR/Spinnaker, OpenCV, file, synthet
                  lossless chunks or H.264), reader, compress, settings (config/video.yaml), camtest,
                  calibration (ChArUco board, detection, lens calibration, simulated board), extrinsics (camera
                  positions, triangulation, simulated multi-camera rig), places (3D places, their outline in every
-                 camera), sheet (sticker PDF)
+                 camera), drift (did a camera move: reference views, alignment overlay), sheet (sticker PDF)
 mavric/analysis/  sync, bouts, labels I/O + BORIS, compare, sounds (sound events x RFID, answers to played
                  sounds), plots, render (with sound and spectrogram strip), timeline, clips, pipeline
 mavric/gui/       acquire and review windows (sound_panel: audio lanes and sound-event labeling),
@@ -965,8 +1001,7 @@ tools/           make_overview.py, make_screenshots.py: the README pictures, fro
 
 ## Not built yet
 
-- **Camera drift check and 3D tracking** (lenses, camera positions and 3D places are built): check every session
-  that the sync LED flashes where it should in every camera, and warn when a camera moved; later, frame-triggered
+- **3D tracking** (lenses, camera positions, 3D places and the camera position check are built): frame-triggered
   capture for 3D tracking and pose.
 - **Automatic call classification,** trained on the labeled sound events.
 - **Playback schedules:** playlists and timed stimulus sequences (sounds play by hand or from RFID rules today).

@@ -103,7 +103,7 @@ mavric acquire
 
 | | Control | What to do |
 |---|---|---|
-| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Video settings…* sets exposure, gain, size and recording format. *Calibrate cameras…* calibrates each camera's lens ([below](#calibrate-the-cameras)). |
+| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Video settings…* sets exposure, gain, size and recording format. *Calibrate cameras…* calibrates each camera's lens ([below](#calibrate-the-cameras)). *Position* says whether each camera is still where it was; *Alignment overlay* helps put it back ([below](#did-a-camera-move)). |
 | 2 | **Audio inputs** | Level per input, with a red CLIP warning, and a counter of the sync pulses received. |
 | 3 | **Soundboard** | With speakers configured: play any sound from the library on any speaker, by hand ([§2](#2-sounds-outputs-and-camera-clips)). |
 | 4 | **Place ROIs** | Once per setup, on the first camera: *Draw / reset* one ROI per antenna, then the sync LED box, then *Save ROIs to rig*. |
@@ -209,6 +209,26 @@ be identified even when part of the board is hidden.
 A calibration holds while the lens, focus, zoom and image size stay the same. After changing the image size in
 *Video settings…*, calibrate again (the dialog warns). The simulated camera (`mavric acquire --sim`) shows a
 simulated board, so you can try all of this without hardware.
+
+### Did a camera move?
+
+A bumped camera no longer matches the places drawn on it. MAVRIC keeps a **reference view** of each camera: the view
+its ROIs and its position were made for. It is taken at the first recording after you save them (*Save ROIs to
+rig*, or *Save positions* in *Calibrate cameras…*), or with *New reference*. Birds and changes of light do not
+count. It only warns: it never stops a recording.
+
+- **While you work:** every 10 s, *Position* (under *Devices*) compares each camera with its reference.
+  - ✓ in place;
+  - ⚠ *shifted a little* (more than 0.5 % of the picture's diagonal, 9 px at 1440×1080);
+  - ⚠ *moved* (more than 2 %). The camera's tile in *All cameras* turns red too.
+- **Putting it back:** *Alignment overlay* draws the reference as magenta outlines on the live picture of the
+  camera shown. An arrow and the status line say how far it is off. Turn the camera until the picture meets the
+  outlines. If it moved on purpose, draw the ROIs again (or calibrate its position again).
+- **In the session:** the check at the start of each recording, and any change during it, are noted in the session.
+  Review shows them. `mavric analyze` also checks pictures spread over the whole recording, says when a camera moved,
+  and whether the sync LED still flashes in its box.
+
+![Alignment overlay](docs/images/acquire_alignment.png)
 
 ## 2. Sounds, outputs and camera clips
 
@@ -317,6 +337,7 @@ The report covers:
 - the sync check (**PASS**/FAIL): the sync LED seen by the camera, and the pulses recorded on the audio input,
   matched against the RFID log;
 - RFID accuracy against your labels (sensitivity, precision, identity, κ);
+- whether a camera moved during the session ([above](#did-a-camera-move));
 - bout timing, time budgets, output firings;
 - **sounds**, once you have labeled sound events:
   - where each emitter was during each sound, by RFID and by your place labels;
@@ -408,7 +429,7 @@ stay on your computer.
 | `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Video settings…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |
-| `calibration.yaml` | each camera's lens and position, the microphones and speakers (`calibration/` holds the views used) | Acquire: *Calibrate cameras…* |
+| `calibration.yaml` | each camera's lens and position, the microphones and speakers (`calibration/` holds the views used and each camera's reference view) | Acquire: *Calibrate cameras…* |
 
 Every setting is explained in [docs/quickstart.md §3](docs/quickstart.md#3-configuration).
 

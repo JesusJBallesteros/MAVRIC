@@ -222,6 +222,17 @@ def main() -> None:
     pump(app, 1.5)
     win.grid.grab().save(str(OUT / "acquire_grid.png"))
     print("wrote docs/images/acquire_grid.png")
+    win._refresh_views(select="cam1")  # cam1 bumped: Position warns, the alignment overlay shows how to put it back
+    pump(app, 0.5)
+    ctl.take_reference("cam0")
+    ctl.take_reference("cam1")
+    ctl.world.moved["cam1"] = (22.0, -9.0, 1.2, 0.0)
+    pump(app, 0.5)
+    for _ in range(3):
+        win._update_positions(background=False)
+    win.b_align.setChecked(True)
+    pump(app, 2.0)
+    annotate(win, [(win.video, 1), (group(win, "Devices"), 2)], OUT / "acquire_alignment.png", scale=0.6)
     win.close()
     ctl.shutdown()
 

@@ -63,6 +63,7 @@ class SimWorld:
     t0_abs: float | None = None  # host monotonic time of world t=0 (real-time mode)
     _phase: dict = field(default_factory=dict)
     scene: "SimScene3D | None" = None  # several synthetic cameras: the cage in 3D, seen from each
+    moved: dict = field(default_factory=dict)  # camera -> (dx px, dy px, degrees clockwise, from t): a bumped camera
 
     # ------------------------------------------------------------------ generation
     @classmethod
@@ -180,7 +181,18 @@ class SimWorld:
 
     # ------------------------------------------------------------------ rendering
     def render(self, t: float, noise: bool = True, cam: str | None = None) -> np.ndarray:
-        """A plan of the cage; with a 3D scene attached, the cage seen by camera `cam` from its place."""
+        """A plan of the cage; with a 3D scene attached, the cage seen by camera `cam` from its place. A camera in
+        `moved` sees it shifted and turned from that time on."""
+        img = self._render(t, noise, cam)
+        bump = self.moved.get(cam or "cam0")
+        if bump is not None and t >= bump[3]:
+            h, w = img.shape[:2]
+            M = cv2.getRotationMatrix2D((w / 2, h / 2), -bump[2], 1.0)
+            M[:, 2] += bump[:2]
+            img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+        return img
+
+    def _render(self, t: float, noise: bool, cam: str | None) -> np.ndarray:
         if self.scene is not None and cam is not None and cam in self.scene.cams:
             return self.scene.render(t, cam, noise)
         w, h = self.image_size
@@ -543,6 +555,7 @@ def simulate_session(
     playback_every_s: float = 0.0,
     sound_labels: bool = False,
     places_3d: bool = False,
+    camera_moved: tuple[float, float, float, float] | None = None,
 ) -> Session:
     """Write a complete synthetic session (video, frame sidecar, RFID log, labels; optionally audio).
 
@@ -554,6 +567,9 @@ def simulate_session(
     their true heights, the microphones and speakers at their true positions
     in the session's calibration.yaml, and the calls and stimuli reaching each
     microphone by distance and its pickup instead of the near / far model.
+
+    The camera's reference view is the cage at the start; `camera_moved` (dx px,
+    dy px, degrees clockwise, from s) bumps the camera during the session.
     """
     rng = np.random.default_rng(seed + 100)
     rig = load_rig(rig_path)
@@ -576,6 +592,11 @@ def simulate_session(
         cal = sess.file(CALIBRATION_FILE)
         cal.unlink(missing_ok=True)  # this computer's own calibration does not belong to the simulated cage
         save_devices(cal, scene.devices(), {"note": "simulated: the true positions and levels"})
+    from .video.drift import save_reference
+
+    save_reference(sess.file(CALIBRATION_FILE), "cam0", world.render(0.0, noise=False, cam="cam0"))
+    if camera_moved is not None:
+        world.moved["cam0"] = tuple(float(v) for v in camera_moved)
 
     # RFID
     lines, truth = simulate_rfid(world, tags, rfid_model, seed=seed + 1)

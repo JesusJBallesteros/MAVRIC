@@ -13,10 +13,14 @@ from ..acquire import AcquisitionController, simulation_controller, stall_text
 from ..config import Roi, RoiSet, project_root, resolve_path
 from ..core import now
 from ..rfid.serial_reader import Presence, list_ports
+from ..video.drift import LEVEL_TEXT, steady
 from .camera_grid import CameraGrid
 from .common import GRAY, RED, VideoView, Worker, message, swatch
 
 GRID = "__all__"  # view_combo data for the all-cameras grid
+POSITION_TIP = ("Each camera against its reference view, every 10 s: ✓ in place, ⚠ shifted a little or moved (the "
+                "places are drawn off by that much). The reference is the view the ROIs and the camera position were "
+                "made for, taken at the first recording after they were saved")
 
 
 class AcquireWindow(QtWidgets.QMainWindow):
@@ -42,6 +46,11 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.meters = None
         self.spec = None
         self._workers: list[Worker] = []
+        self._pos_t = 0.0  # last check of the camera positions
+        self._align_t = 0.0  # last shift measured for the alignment overlay
+        self._align_shift = None
+        self._pos_busy = self._align_busy = False  # a check running in the background
+        self._pos_worker = self._align_worker = None
 
         self.video = VideoView()
         self.video.load_rois(ctl.rois, editable=False)
@@ -109,6 +118,19 @@ class AcquireWindow(QtWidgets.QMainWindow):
         b_cal.clicked.connect(self._open_calibration)
         f.addWidget(b_cal, 4, 3)
         self.update_calibration_label()
+        self.pos_label = QtWidgets.QLabel("—")
+        self.pos_label.setWordWrap(True)
+        self.pos_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self.pos_label.setToolTip(POSITION_TIP)
+        f.addWidget(QtWidgets.QLabel("Position"), 5, 0)
+        f.addWidget(self.pos_label, 5, 1, 2, 2)
+        self.b_align = QtWidgets.QPushButton("Alignment overlay")
+        self.b_align.setCheckable(True)
+        self.b_align.toggled.connect(self._align_toggled)
+        f.addWidget(self.b_align, 5, 3)
+        b_ref = QtWidgets.QPushButton("New reference")
+        b_ref.clicked.connect(self._new_reference)
+        f.addWidget(b_ref, 6, 3)
         acfg = self.ctl.audio_cfg
         self.b_audio = QtWidgets.QPushButton("Connect audio")
         self.b_audio.clicked.connect(self._toggle_audio)
@@ -639,7 +661,101 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.ctl.rois = rs
         path = resolve_path(self.rig["paths"]["rois_file"])
         rs.save(path)
-        self.statusBar().showMessage(f"Saved {len(rs.rois)} ROIs to {path}", 5000)
+        from ..video.drift import clear_references
+
+        new = clear_references(self.ctl.calibration_path, [self.ctl.roi_camera])  # the view they were drawn on
+        self.statusBar().showMessage(f"Saved {len(rs.rois)} ROIs to {path}"
+                                     + (f"; {new[0]}'s reference view is taken again at the next recording"
+                                        if new else ""), 8000)
+
+    # ------------------------------------------------------------------ camera positions
+    def _update_positions(self, background: bool = True) -> None:
+        """Every 10 s: each connected camera against its reference view (in the background: about 0.1 s each)."""
+        if not self.ctl.cams:
+            self.pos_label.setText("—")
+            return
+        if not background:
+            self._show_positions(self.ctl.check_positions())
+        elif not self._pos_busy:
+            self._pos_busy = True
+            w = Worker(self.ctl.check_positions)
+            w.done.connect(self._show_positions)
+            w.failed.connect(lambda e: setattr(self, "_pos_busy", False))
+            self._pos_worker = w  # one at a time; kept so it is not collected
+            w.start()
+
+    def _show_positions(self, res: dict) -> None:
+        self._pos_busy = False
+        parts, tips = [], []
+        for cid in self.ctl.cams:
+            s = res.get(cid)
+            if s is None:
+                parts.append(f"{cid} — no reference yet")
+                tips.append(f"{cid}: no reference view yet; it is taken at the next recording, or with New reference")
+                continue
+            tips.append(f"{cid}: {s.text()}")
+            if s.level == "ok":
+                parts.append(f"{cid} ✓ in place")
+            elif s.level == "unknown":
+                parts.append(f"{cid} ? cannot compare")
+            else:
+                parts.append(f"<span style='color:#c0392b'>{cid} ⚠ {LEVEL_TEXT[s.level]} {s.max_px:.0f} px</span>")
+        self.pos_label.setText("<br>".join(parts))
+        self.pos_label.setToolTip("\n".join(tips) + "\n\n" + POSITION_TIP)
+
+    def _align_toggled(self, on: bool) -> None:
+        self._align_shift = None
+        self._align_t = 0.0
+        self._last_grab = -1
+        if on and self._view_id not in (None, GRID) and self.ctl.reference(self._view_id) is None:
+            self.statusBar().showMessage(f"{self._view_id} has no reference view yet: it is taken at the next "
+                                         "recording, or with New reference", 8000)
+
+    def _aligned(self, cid: str, img: np.ndarray) -> np.ndarray:
+        """The live picture with its reference view's outlines, and the shift measured about once a second."""
+        from ..video.drift import measure, overlay
+
+        ref = self.ctl.reference(cid)
+        if ref is None:
+            return img
+        if not self._align_busy and time.monotonic() - self._align_t > 1.0:
+            self._align_busy = True
+            w = Worker(measure, ref, img.copy())
+            w.done.connect(lambda s, c=cid: self._aligned_shift(c, s))
+            w.failed.connect(lambda e: setattr(self, "_align_busy", False))
+            self._align_worker = w
+            w.start()
+        return overlay(img, ref, self._align_shift)
+
+    def _aligned_shift(self, cid: str, s) -> None:
+        self._align_busy = False
+        self._align_t = time.monotonic()
+        if not self.b_align.isChecked() or cid != self._view_id:
+            return
+        self._align_shift = s
+        self.statusBar().showMessage(f"{cid}: {s.text()}" + ("" if s.level in ("ok", "unknown") else
+                                                             ". Turn the camera until the picture meets the "
+                                                             "magenta outlines"), 3000)
+
+    def _new_reference(self) -> None:
+        cids = list(self.ctl.cams) if self._view_id == GRID else [self._view_id] if self._view_id else []
+        if not cids:
+            message(self, "New reference", "Connect a camera first.")
+            return
+        r = QtWidgets.QMessageBox.question(
+            self, "New reference view",
+            f"Make the view of {', '.join(cids)} now its reference? Do this only when the places drawn on it are "
+            "right: later views are compared with it to tell whether the camera moved.")
+        if r != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        for cid in cids:
+            try:
+                self.ctl.take_reference(cid)
+            except RuntimeError as e:
+                message(self, "New reference", str(e), error=True)
+                return
+        self._update_positions(background=False)
+        self.statusBar().showMessage(f"New reference view for {', '.join(cids)}", 5000)
 
     # ------------------------------------------------------------------ recording
     def _toggle_record(self) -> None:
@@ -709,7 +825,11 @@ class AcquireWindow(QtWidgets.QMainWindow):
             th = self.ctl.cams.get(self._view_id) if self._view_id else None
             if th is not None and th.latest is not None and th.latest.grab_idx != self._last_grab:
                 self._last_grab = th.latest.grab_idx
-                self.video.set_image(th.latest.image)
+                img = th.latest.image
+                self.video.set_image(self._aligned(self._view_id, img) if self.b_align.isChecked() else img)
+        if time.monotonic() - self._pos_t > 10.0:
+            self._pos_t = time.monotonic()
+            self._update_positions()
 
         pres = self.ctl.presence()
         t = now()
@@ -782,6 +902,10 @@ class AcquireWindow(QtWidgets.QMainWindow):
                 parts.append(f"● CLIP {clips[cid]:.0f} s")
             if cid == self.ctl.roi_camera:
                 parts.append("ROIs drawn here")
+            pos = steady(self.ctl.positions.get(cid) or [])
+            moved = pos is not None and pos.level in ("shifted", "moved")
+            if moved:
+                parts.append(f"⚠ {pos.level} {pos.max_px:.0f} px")
             err = c.get("error")
             stall = None if err else stall_text(c)
             if err:
@@ -789,7 +913,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
             elif stall:
                 parts.append(stall)
             self.grid.update_tile(cid, th.latest, "  ·  ".join(parts),
-                                  alert=bool(err or stall or c.get("rec_dropped")))
+                                  alert=bool(err or stall or c.get("rec_dropped") or moved))
 
     def _update_led(self, img: np.ndarray) -> None:
         sync = self.current_rois().sync

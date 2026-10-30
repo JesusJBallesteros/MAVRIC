@@ -22,6 +22,10 @@ ACQUIRE = {
                           "camera shows the places; then the microphones and speakers, checked by sound",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
+    "Alignment overlay": "Draw the shown camera's reference view as magenta outlines on the live picture, with an "
+                         "arrow when it moved: turn the camera until the picture meets the outlines",
+    "New reference": "Make the shown camera's view now (every camera's, in All cameras) its reference view: only "
+                     "when the places drawn on it are right",
     # ROIs
     "Place ROIs (one per antenna) and sync LED": "Regions drawn on the first camera: one per antenna (place), plus a "
                                                  "box over the sync LED",

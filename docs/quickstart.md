@@ -391,6 +391,7 @@ sessions/20261029_101500_demo/
   session.json             setup, clock, devices, statistics
   tags.csv, rois.json      the tag map and ROIs used
   calibration.yaml         the camera calibration used (if there is one)
+  calibration/             each camera's reference view, to tell whether it moved
   rfid_raw.csv             every line from the RFID Arduino
   cam0_raw_000.mkv …       video (raw, lossless), or cam0.mp4 (H.264)
   frames_cam0.csv          the time of every frame
@@ -433,7 +434,7 @@ sessions/20261029_101500_demo/
 
 | File | Contents |
 |---|---|
-| `analysis/` | `sync_report.json` (clock fits, sync check **PASS**/FAIL), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), sounds linked to places (`sound_events_linked.csv`, `call_rates.csv`, `playback_responses.csv`, `playback_by_subject.csv`), `sound_proposals.csv`, `annotated_<cam>.mp4`, `timeline/` ([reference](reference.md#3-analyze-mavric-analyze-session)) |
+| `analysis/` | `sync_report.json` (clock fits, sync check **PASS**/FAIL), `camera_positions.json` (did a camera move), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), sounds linked to places (`sound_events_linked.csv`, `call_rates.csv`, `playback_responses.csv`, `playback_by_subject.csv`), `sound_proposals.csv`, `annotated_<cam>.mp4`, `timeline/` ([reference](reference.md#3-analyze-mavric-analyze-session)) |
 | `<cam>_compressed.mp4` | The H.264 copy from `mavric compress` (every frame, constant rate) |
 
 The `pigeon` column name in the label and analysis tables is historical; it holds the subject name from `tags.csv`.

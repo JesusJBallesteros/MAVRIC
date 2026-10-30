@@ -602,7 +602,11 @@ class CalibrationDialog(QtWidgets.QDialog):
         if self.solution is None:
             return
         save_poses(self.path, self.solution)
-        self.win.statusBar().showMessage(f"Camera positions saved to {self.path}", 8000)
+        from ..video.drift import clear_references
+
+        clear_references(self.path, list(self.solution.poses))  # they belong to the old positions
+        self.win.statusBar().showMessage(f"Camera positions saved to {self.path}. Remove the board: each camera's "
+                                         "reference view (did it move?) is taken at the next recording.", 12000)
         if hasattr(self.win, "update_calibration_label"):
             self.win.update_calibration_label()
 

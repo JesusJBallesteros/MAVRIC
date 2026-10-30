@@ -6,6 +6,7 @@ Layout::
         session.json          metadata, clock anchor, rig snapshot, camera info, stats
         tags.csv  rois.json   snapshot of the tag map and ROIs used
         calibration.yaml      snapshot of the camera calibration (lenses, positions), if there is one
+        calibration/          each camera's reference view (reference_<cam>.png), to check it did not move
         rfid_raw.csv          every serial line (host_t = s since session start)
         cam0.mp4              video, PTS = frame_idx / nominal fps
         frames_cam0.csv       true per-frame timing (host + camera hardware clock)
@@ -86,6 +87,9 @@ class Session:
         cal = resolve_path(rig["paths"].get("calibration_file", "config/calibration.yaml"))
         if cal.exists():
             shutil.copy2(cal, folder / CALIBRATION_FILE)
+        from .video.drift import copy_references
+
+        copy_references(cal, folder)  # each camera's reference view: did it move?
         s.save_meta()
         return s
 

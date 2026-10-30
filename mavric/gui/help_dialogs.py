@@ -39,6 +39,8 @@ BASICS = {
   <li><i>Calibrate cameras…</i>: each camera's lens, then where all cameras are, from views of the ChArUco board
   (<i>Sticker sheet…</i> turns a plain checkerboard into one); then each place's height, so every camera shows the
   places; then where the microphones and speakers are, checked by sound.</li>
+  <li><i>Position</i>: whether each camera is still where its ROIs were drawn (every 10 s); <i>Alignment
+  overlay</i> shows its reference view as outlines on the live picture, to put a bumped camera back.</li>
   <li><i>Outputs…</i>: TTL, Intan, MATLAB, sounds, camera clips. Outputs only fire while <i>armed</i>.</li>
   <li><i>Soundboard</i> (audio connected, speakers configured): play any sound from <code>sounds/</code> by hand.</li>
   <li><i>View → All cameras</i>: monitor every camera at once, with the places each one sees.</li>

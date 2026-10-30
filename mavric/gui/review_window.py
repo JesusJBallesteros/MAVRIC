@@ -167,8 +167,13 @@ class ReviewWindow(QtWidgets.QMainWindow):
         v = QtWidgets.QVBoxLayout(side)
         what = [w for w, on in (("video", self.video_on), ("audio", self.audio_on)) if on] or ["RFID only"]
         length = f"{self.n_frames} frames, " if self.video_on else ""
+        from ..video.drift import recorded_warnings
+
+        moved = recorded_warnings(self.sess)
         info = QtWidgets.QLabel(f"<b>{self.sess.name}</b><br>{self.sess.path.name}<br>"
-                                f"{length}{self.t_end / 60:.1f} min · reviewing {' + '.join(what)}")
+                                f"{length}{self.t_end / 60:.1f} min · reviewing {' + '.join(what)}"
+                                + "".join(f"<br><span style='color:#c0392b'>⚠ {w}: the places may be drawn off "
+                                          "there</span>" for w in moved))
         info.setWordWrap(True)
         v.addWidget(info)
 
