@@ -174,18 +174,14 @@ This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 
 ## 4. Sync LED (required)
 
-D52 drives the LED and nothing else.
-- **§4.1:** a visible red LED, the one the rig uses.
-- **§4.2:** an alternative the birds barely see: an infrared (740 nm) SMD LED, OIS-330 740, through 220 Ω.
+D52 drives a red LED and nothing else.
 
-The firmware, the timing and the analysis are identical for both.
-
-### 4.1 Red LED, straight from D52 (in use)
+### 4.1 Red LED, straight from D52
 
 **Circuit:** MEGA **D52 → 330 Ω → LED anode**, **LED cathode → GND**.
 - With a red LED (Vf ≈ 2 V) this draws about 9 mA. That's within the ATmega2560's recommended 20 mA per pin.
 - A red LED sold as "5 V" has the resistor built in: wire it straight to D52 and GND (table below).
-- The birds see a visible LED, so point it at the camera through a short tube (§4.3).
+- The birds see a visible LED, so point it at the camera through a short tube (§4.2).
 
 **Buying LEDs for D52.** The pin outputs 5 V. Keep the LED current at **15 mA or less**.
 
@@ -202,71 +198,7 @@ itself, which can exceed the pin's 40 mA absolute maximum and damage it.
 2. **Acquire GUI:** *Sync LED box brightness* jumps with each flash.
 3. **5-minute recording,** then `mavric analyze`: the LED/SYNC check says **PASS**.
 
-### 4.2 Alternative: infrared sync LED, EPIGAP OSA OIS-330 740
-
-Datasheet: [OIS-330 740](https://www.epigap-osa.com/datasheet/OIS-330_740.pdf) ([product page](https://www.epigap-osa.com/product/ois-330-740/)).
-
-| Property | Value (datasheet) | What it means here |
-|---|---|---|
-| Wavelength | 740 nm peak (730–750 nm), 25 nm wide | far red, at the edge of visible light |
-| Forward voltage | 1.7 V typical, 2.0 V maximum, at 30 mA | sets the resistor |
-| Maximum current | **30 mA** continuous (less above 60 °C) | run it at about 15 mA. The 150 mA pulse rating is for pulses ≤ 100 µs, so it does not apply to 80 ms sync pulses. |
-| Reverse voltage | 5 V maximum | D52 never reverses it |
-| Beam | 40° (built-in lens) | aim it at the camera |
-| Package | 1206 SMD, 3.2 × 1.6 × 1.9 mm; the **mark on the back is the anode** | needs soldering (below) |
-
-**Circuit: one LED**
-
-```
-MEGA D52 ──[ 220 Ω ]──► anode (marked end)  OIS-330 740  cathode ──── MEGA GND
-```
-
-- **Current:** (5 V − 1.7 V) / 220 Ω ≈ 15 mA. The pin sags slightly under load, so expect 13–15 mA.
-- **Headroom:** that is half the LED's maximum.
-- **Brighter:** 180 Ω (≈ 18 mA) is the most to draw from D52. Never use less than 150 Ω.
-
-**Circuit: two LEDs** (e.g. one in view of each camera): put them **in series** with one 100 Ω resistor.
-
-```
-MEGA D52 ──[ 100 Ω ]──► LED 1 ──► LED 2 ──── MEGA GND        (each LED: anode towards D52)
-```
-
-- **Current:** (5 − 2 × 1.7) / 100 ≈ 16 mA through both, and still ≈ 10 mA with worst-case 2.0 V LEDs.
-- **Not in parallel:** don't put them in parallel on one resistor (they share current unevenly). Two separate 220 Ω
-  branches would take 30 mA from the pin.
-
-**Soldering the 1206 package**
-- **Wires:** solder two thin stranded wires (e.g. 0.14 mm²) to the end pads. Or mount the LED on a 1206 adapter
-  board or a scrap of perfboard.
-- **Iron:** 25 W at most, 300 °C, ≤ 3 s per pad (datasheet).
-- **Insulation:** cover the joints with heat-shrink, leaving the lens free.
-- **Static:** the LEDs ship in ESD bags. Touch ground before handling them.
-
-**Polarity check** (before wiring it in): use a multimeter in diode mode.
-- **Red probe on the anode (marked end):** about 1.4–1.6 V, and a faint glow that a phone camera shows clearly.
-- **Reversed:** it reads "OL".
-
-**Will the camera see it?**
-- **Camera body:** Chameleon3 **mono** models have plain glass where colour models have an IR-cut filter (Chameleon3
-  manual §4.7). Their P1300 sensor still responds at 740 nm.
-- **Lens:** some lenses carry an IR-blocking coating. Check in the acquire GUI: *Sync LED box brightness* must jump
-  by more than about 20 grey levels at the recording exposure.
-- **If the jump is too weak:** aim the LED straight at the lens, move it closer, use 180 Ω, or add a second LED in
-  series.
-
-**Will the birds see it?** 740 nm is far red, not deep infrared.
-- **People:** looking straight into it, people see a dim, dark red glow.
-- **Pigeons:** their sensitivity at this end of the spectrum is probably similar, so expect them to see it faintly.
-  That is still far less conspicuous than a visible LED, especially aimed at the camera through the short tube (§4.3).
-- **To make it fully invisible to the birds:** use 850 nm or 940 nm LEDs with the same circuit (R ≈ (5 − Vf) / 15 mA).
-  The camera is less sensitive there, so test one first.
-
-**Checks**
-1. Run `mavric link-test --port COM3`. The LED pulses every 2–6 s; a phone camera shows the flashes.
-2. **Acquire GUI:** the SYNC box brightness jumps with each flash.
-3. **5-minute recording,** then `mavric analyze`: the LED/SYNC check says **PASS**.
-
-### 4.3 Placement and pulse length (both versions)
+### 4.2 Placement and pulse length
 
 **Placement**
 - Put it in a corner of **every** camera's field of view, away from the perches.
@@ -320,8 +252,7 @@ The opto-isolated limits apply when the camera is powered over USB (manual §6.5
 2. MEGA **D48 → pin 9 (OPTO_IN)**. D48 is the spare sync output, with the same pulse as the LED on D52.
 
 **Check:** in **SpinView**, set Line0 to *Input* and watch *LineStatus* flip on each flash.
-- If it never goes high, the 5 V pulse may not drive the opto input hard enough. Buffer it, for example with a
-  transistor switching 12 V. The 2015 manual gives no input threshold or current.
+- If it never goes high, check that pin 7 (OPTO_GND) is joined to the MEGA GND.
 
 **What it gives today:** a wiring check only. The Chameleon3 cannot store the line state per frame: its GenICam chunks
 are image CRC, frame counter, offsets, size, exposure, gain and black level. So `line_status: false` stays in
@@ -329,6 +260,20 @@ are image CRC, frame counter, offsets, size, exposure, gain and black level. So 
 - The pin becomes useful with a camera that has a line-status chunk: Basler `LineStatusAll`, or FLIR Blackfly S
   models with `ExposureEndLineStatusAll` (not the BFS-U3-16S2, whose chunks have no line state).
 - With the frame trigger (§5.5), the opto input takes the trigger instead.
+
+### 5.4 Future: exposure-active pulses to the Arduino (pins 8 + 7)
+
+This would log every exposure start on the Arduino clock, giving frame-exact video↔RFID sync with no image analysis.
+
+**Wiring**
+1. Pin **7 (OPTO_GND) → MEGA GND**.
+2. Pin **8 (OPTO_OUT) → MEGA D21**, with a **4.7 kΩ pull-up from D21 to MEGA 5V** (about 1 mA, well under 25 mA).
+
+**Camera setting:** set Line1 to *Strobe* (exposure active). The open-collector output pulls low while active; use
+*LineInverter* if needed.
+
+**Not implemented yet:** this needs a firmware addition (log `FRAME` lines from an interrupt on D21) and a matching
+analysis step.
 
 ### 5.5 Optional: frame trigger for 3D (pins 9 + 7)
 
@@ -363,22 +308,8 @@ Keep each exposure shorter than one frame interval (Acquire warns).
   is waiting for the frame trigger.
 - **Check:** with the RFID reader connected, each frame-triggered camera shows the trigger's frame rate, and the
   status line shows *frame trigger: running*. In SpinView, Line0's *LineStatus* flickers.
-- If a camera misses pulses, the MEGA pin may not drive the opto inputs hard enough. Buffer it, for example with one
-  transistor per camera switching 5–12 V. The 2015 manual gives no input threshold or current.
-
-### 5.4 Future: exposure-active pulses to the Arduino (pins 8 + 7)
-
-This would log every exposure start on the Arduino clock, giving frame-exact video↔RFID sync with no image analysis.
-
-**Wiring**
-1. Pin **7 (OPTO_GND) → MEGA GND**.
-2. Pin **8 (OPTO_OUT) → MEGA D21**, with a **4.7 kΩ pull-up from D21 to MEGA 5V** (about 1 mA, well under 25 mA).
-
-**Camera setting:** set Line1 to *Strobe* (exposure active). The open-collector output pulls low while active; use
-*LineInverter* if needed.
-
-**Not implemented yet:** this needs a firmware addition (log `FRAME` lines from an interrupt on D21) and a matching
-analysis step.
+- If a camera misses pulses, check its pin 7 (OPTO_GND) wire, and that its exposure is shorter than one frame
+  interval.
 
 ---
 
@@ -393,7 +324,7 @@ when output rules fire (acquire GUI → **Outputs…**). The RFID MEGA is left u
 |---|---|---|
 | USB | PC (any USB port) | 115200 baud. Find the COM port with `mavric ports`, and set it in the device (Outputs… → Devices). |
 | Firmware | `firmware/MAVRIC_IO/MAVRIC_IO.ino` | `arduino-cli compile --fqbn arduino:avr:uno firmware/MAVRIC_IO`, then `upload -p COMx` |
-| Output pins | any digital pin **except 0 and 1** (USB serial) | each pin gives 5 V high / 0 V low; draw ≤ 20 mA per pin, so anything bigger goes through a transistor or relay |
+| Output pins | any digital pin **except 0 and 1** (USB serial) | each pin gives 5 V high / 0 V low; draw ≤ 20 mA per pin, so anything bigger goes through a relay module (§6.3) |
 | GND | common with every device it drives (see below) | |
 
 **Watchdog.** If the PC stops talking for longer than `watchdog_s` (default 2 s), the board switches every pin low on
@@ -417,14 +348,12 @@ add an *Intan RHX* device in Outputs….
 
 **Sharing D48.** The Intan input draws negligible current, so D48 can also feed the camera opto input (§5.3).
 
-### 6.3 LEDs, lights, relays
+### 6.3 LEDs and relays
 
 | Load | Circuit | Notes |
 |---|---|---|
 | Small indicator LED (≤ 15 mA) | pin → 330 Ω → LED → GND | direct |
-| Brighter LED / several LEDs | pin → 1 kΩ → base of an NPN transistor (2N2222 / BC337); emitter → GND; collector → LED cathode; LED anode → resistor → +5 V or +12 V | resistor = (V_supply − V_LED) / I_LED. Join the supply's GND to the Arduino GND. |
-| 12 V LED strip / lamp | pin → 100 Ω → gate of a logic-level N-MOSFET (IRLZ44N, AO3400), 100 kΩ gate → GND; source → GND; drain → strip − ; strip + → +12 V | MOSFET rated well above the load current |
-| Mains or other isolated loads | a **relay module** with its own driver transistor and flyback diode, "high-level trigger" type (MAVRIC's on = HIGH) | only with a certified module and enclosure; keep mains away from the cage and the animals |
+| Lights, mains or other larger loads | a **relay module** with its own driver and flyback diode, "high-level trigger" type (MAVRIC's on = HIGH) | only with a certified module and enclosure; keep mains away from the cage and the animals |
 
 ### 6.4 Checks
 
@@ -525,11 +454,9 @@ MEGA GND ─────────────┴──────── TRS 
 - [ID-Innovations ID-3LA / ID-12LA / ID-20LA datasheet (X2.01)](https://cdn.sparkfun.com/assets/c/7/0/e/3/DS-11828-RFID_Reader_ID-20LA__125_kHz_.pdf)
   - §2 pin-out, §3 operating characteristics, §6 pin description, §7 absolute maximum ratings, §12 power supply,
     §17 layout precautions.
-- [EPIGAP OSA OIS-330 740 datasheet (edition 7/23)](https://www.epigap-osa.com/datasheet/OIS-330_740.pdf)
-  - electro-optical characteristics, maximum ratings, outline (anode marking), manual soldering.
 - [Point Grey Chameleon3 Technical Reference v3.0 (2015)](https://www.teledynevisionsolutions.com/products/chameleon3-usb3/) (product page → Resources → CM3-U3 Technical Reference)
   - §2.4 bus/bandwidth, §4.5 lens mount, §4.8 connectors and GPIO pin-map, §5.1 power, §6 I/O control,
-    §4.7 infrared cut-off filters, §6.5 GPIO electrical characteristics, §C.8 chunk data.
+    §6.5 GPIO electrical characteristics, §C.8 chunk data.
 - [Intan Recording Controller user guide](https://intantech.com/files/Intan_Recording_Controller_user_guide.pdf)
   - digital inputs (DIN) and outputs, TTL levels, RHX Remote TCP Control.
 - [Trinamic TMCM-1141 (Analog Devices)](https://www.analog.com/en/products/tmcm-1141.html) (product page → hardware and TMCL firmware manuals)
