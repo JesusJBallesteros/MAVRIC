@@ -340,8 +340,9 @@ mavric analyze sessions/<session>
 
 The report covers:
 - the clock fits;
-- the sync check (**PASS**/FAIL): the sync LED seen by the camera, and the pulses recorded on the audio input,
-  matched against the RFID log;
+- the sync check (**PASS**/FAIL), in words and in one figure: each camera's pace, every sync LED flash against
+  when it was sent (how precisely video and RFID times agree), the frames against their trigger pulses, and the
+  pulses recorded on the audio input;
 - RFID accuracy against your labels (sensitivity, precision, identity, κ);
 - whether a camera moved during the session ([above](#did-a-camera-move));
 - with the frame trigger: each frame at its pulse's time, and the cameras' frames paired (`frame_sets.csv`);

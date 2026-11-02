@@ -64,10 +64,18 @@ def test_a_session_on_the_frame_trigger(tmp_path):
     assert tr["missed_pulses"] == int(P.frames["hw_counter"].diff().fillna(1).sub(1).sum())  # the camera's drops
     led = P.sync["report"]["led"]
     assert led["pass"] and led["offset_applied"] is False  # the frames are on the RFID clock already
-    s = run_analysis(sess, plots=False)
+    assert abs(led["offset_s"]) < 3 * led["offset_se_s"]  # the LED agrees with the pulses' times
+    assert led["n_matched"] == led["n_sync_in_view"] and led["n_extra"] == 0
+    s = run_analysis(sess, plots=True)
     assert s["frame_trigger"]["cameras"]["cam0"]["locked"]
     sets = pd.read_csv(sess.analysis_dir / "frame_sets.csv")
-    assert list(sets.columns) == ["run", "pulse", "t", "frame_cam0"] and len(sets) == len(P.frames)
+    assert list(sets.columns) == ["run", "pulse", "t", "frame_cam0"]
+    assert len(sets) == len(P.frames) + tr["missed_pulses"] and sets["frame_cam0"].notna().sum() == len(P.frames)
+    assert np.allclose(np.diff(sets["t"]), np.diff(sets["t"]).mean(), atol=1e-6)  # every pulse, missed ones too
+    text = "\n".join(s["sync_text"])
+    assert "on the frame trigger" in text and f"{tr['missed_pulses']} without one" in text and "PASS" in text
+    assert (sess.analysis_dir / "sync_summary.txt").read_text(encoding="utf-8").startswith("RFID board clock")
+    assert (sess.analysis_dir / "sync_diagnostics.png").exists()
 
 
 def test_two_cameras_on_the_simulated_trigger(tmp_path):
@@ -100,9 +108,13 @@ def test_two_cameras_on_the_simulated_trigger(tmp_path):
         ctl.shutdown()
     assert sess.meta["frame_trigger"]["cameras"] == ["cam0", "cam1"]
     assert all(c["frame_trigger"] and c["fps"] == 30 for c in sess.cameras)
-    ft = run_analysis(sess, plots=False)["frame_trigger"]
+    s = run_analysis(sess, plots=True)
+    ft = s["frame_trigger"]
     assert all(r["locked"] for r in ft["cameras"].values())
     assert ft["complete_sets"] >= 0.9 * ft["pulses"] and ft["pulses"] >= 90
+    cams = s["sync"]["cameras"]  # the sync check covers every camera
+    assert set(cams) == {"cam0", "cam1"} and all(c["camera"]["trigger"]["locked"] for c in cams.values())
+    assert sum(line.startswith("cam") for line in s["sync_text"]) == 2 and s["sync_text"][-1].startswith("3D:")
 
 
 def test_flir_cameras_expose_on_the_trigger_input(pyspin):

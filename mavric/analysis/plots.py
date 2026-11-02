@@ -210,42 +210,193 @@ def latency_hist(events: pd.DataFrame, tol_s: float, out: Path) -> Path | None:
         return _save(fig, out / "bout_timing_error.png")
 
 
+CAM_COLORS = [S_MANUAL, S_RFID, "#1baf7a", "#8e5bd0"]  # one per camera in the sync figure
+
+
+def _titled(ax, title: str, note: str = "") -> None:
+    """A title with a one-line explanation under it."""
+    ax.set_title(title, fontsize=9.5, pad=16 if note else 6)
+    if note:
+        ax.text(0, 1.02, note, transform=ax.transAxes, fontsize=7.5, color=MUTED, va="bottom")
+
+
 def sync_diagnostics(P, out: Path) -> Path:
-    raw = P.raw
-    fits = P.sync["rfid_fits"]
+    """The sync check: every LED flash lined up on when it was sent, each flash's error over the session, each
+    camera's frame rate, the frames against their trigger pulses (or the time between frames), and the RFID board's
+    serial delay. The same in words: sync_check.sync_lines."""
+    cams = P.sync.get("cameras") or ({"camera": P.sync} if P.frame_t is not None else {})
+    pulse_s = float((P.session.meta.get("rig") or {}).get("sync", {}).get("led_pulse_s", 0.08))
     with plt.rc_context(STYLE):
-        fig, axes = plt.subplots(1, 2, figsize=(10, 2.8))
-        ax = axes[0]
-        for seg, f in fits.items():
-            g = raw[(raw["segment"] == seg) & raw["arduino_us"].notna()]
-            lat = (g["host_t"].to_numpy() - f(g["arduino_us"].to_numpy() / 1e6)) * 1000
-            ax.scatter(g["host_t"] / 60, lat, s=2, color=S_MANUAL, alpha=0.4, lw=0)
-        ax.set_title("Serial latency after clock fit (Arduino → host)", fontsize=9)
-        ax.set_xlabel("Session time (min)")
-        ax.set_ylabel("ms")
-        ax.grid(axis="y")
-        ax.set_axisbelow(True)
-        ax = axes[1]
-        pairs = P.sync.get("led_pairs") or []
-        rep = P.sync["report"].get("led", {})
-        if pairs and rep.get("offset_s") is not None:
-            lt = np.array([p[0] for p in pairs])
-            st = np.array([p[1] for p in pairs])
-            r = (lt - st - rep["offset_s"]) * 1000
-            ax.scatter(lt / 60, r, s=18, color=S_MANUAL, edgecolor=SURFACE, linewidth=1)
-            ax.axhline(0, color=AXIS, lw=0.8)
-            ax.set_title(f"LED onset vs SYNC line, {len(pairs)}/{rep.get('n_sync')} pulses matched "
-                         f"(offset {rep['offset_s'] * 1000:.1f} ms applied)", fontsize=9)
-        else:
-            ax.text(0.5, 0.5, "No LED/SYNC pulses matched\n(LED ROI missing or not visible)", ha="center",
-                    va="center", color=MUTED, transform=ax.transAxes)
-            ax.set_title("LED onset vs SYNC line", fontsize=9)
-        ax.set_xlabel("Session time (min)")
-        ax.set_ylabel("Residual (ms)")
-        ax.grid(axis="y")
-        ax.set_axisbelow(True)
-        fig.tight_layout()
+        fig = plt.figure(figsize=(11, 8.8))
+        gs = fig.add_gridspec(3, 2, height_ratios=[1.1, 1, 0.75], hspace=0.62, wspace=0.18)
+        _led_aligned(fig.add_subplot(gs[0, 0]), P.sync, pulse_s)
+        _led_errors(fig.add_subplot(gs[0, 1]), P.sync)
+        _frame_rate(fig.add_subplot(gs[1, 0]), cams)
+        _frame_timing(fig.add_subplot(gs[1, 1]), cams)
+        _serial_delay(fig.add_subplot(gs[2, :]), P)
+        fig.subplots_adjust(left=0.06, right=0.98, top=0.93, bottom=0.07)
         return _save(fig, out / "sync_diagnostics.png")
+
+
+def _empty(ax, text: str) -> None:
+    ax.text(0.5, 0.5, text, ha="center", va="center", color=MUTED, transform=ax.transAxes)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
+def _led_aligned(ax, sy: dict, pulse_s: float) -> None:
+    rep = sy["report"].get("led") or {}
+    lvl, tf, pairs = sy.get("led_level"), sy.get("frame_t"), sy.get("led_pairs") or []
+    if not rep.get("validated") or lvl is None or tf is None:
+        _titled(ax, "Every LED flash, lined up on when it was sent")
+        _empty(ax, "No LED flashes matched\n(no SYNC box over the LED, or the LED not visible)")
+        return
+    lo, hi = -0.75 * pulse_s, 1.75 * pulse_s
+    xs, ys = [], []
+    for sent in np.array([p[1] for p in pairs]):
+        i0, i1 = np.searchsorted(tf, [sent + lo, sent + hi])
+        xs.append((tf[i0:i1] - sent) * 1e3)
+        ys.append(lvl[i0:i1])
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    ax.axvspan(0, pulse_s * 1e3, color=S_RFID, alpha=0.10, lw=0)
+    ax.text(pulse_s * 500, 1.13, f"sent: on for {pulse_s * 1e3:.0f} ms", ha="center", fontsize=7.5, color=S_RFID)
+    ax.scatter(x, y, s=4, color=S_MANUAL, alpha=min(0.5, 20 / len(pairs) + 0.05), lw=0)
+    edges = np.arange(lo * 1e3, hi * 1e3 + 2.0, 2.0)
+    k = np.digitize(x, edges)
+    have = [i for i in range(1, len(edges)) if np.any(k == i)]
+    ax.plot([(edges[i - 1] + edges[i]) / 2 for i in have], [np.nanmean(y[k == i]) for i in have], color=INK,
+            lw=1.2, label="average of all flashes")
+    off = rep["offset_s"] * 1e3
+    ax.axvline(off, color=INK2, lw=0.8, ls="--")
+    ax.text(off, -0.2, f" seen {off:+.1f} ms", fontsize=7.5, color=INK2, va="top")
+    ax.set_xlim(lo * 1e3, hi * 1e3)
+    ax.set_ylim(-0.25, 1.25)
+    ax.set_yticks([0, 1], ["off", "on"])
+    ax.set_xlabel("Time from when the RFID board switched the LED on (ms)")
+    ax.legend(loc="center left")
+    _titled(ax, f"Every LED flash, lined up on when it was sent ({rep['n_matched']} flashes)",
+            "Dots: the LED in each frame, all flashes on top of each other. The rise shows when the video saw it.")
+
+
+def _led_errors(ax, sy: dict) -> None:
+    rep = sy["report"].get("led") or {}
+    pairs = sy.get("led_pairs") or []
+    if not rep.get("validated") or not pairs:
+        _titled(ax, "Each flash: seen minus sent")
+        _empty(ax, "No LED flashes matched")
+        return
+    lt, st = np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs])
+    r = (lt - st - rep["offset_s"]) * 1e3
+    half = rep["frame_s"] * 500
+    ax.axhspan(-half, half, color=GRID, alpha=0.6, lw=0)
+    ax.scatter(lt / 60, r, s=14, color=S_MANUAL, edgecolor=SURFACE, linewidth=0.6, zorder=3)
+    ax.axhline(0, color=AXIS, lw=0.8)
+    tr, tr_se = rep.get("trend_ms_per_h"), rep.get("trend_se_ms_per_h")
+    if tr is not None and abs(tr) > 2 * tr_se and abs(tr) > 1.0:
+        xx = np.array([lt.min(), lt.max()])
+        ax.plot(xx / 60, (xx - lt.mean()) * tr / 3600 + np.mean(r), color=S_RFID, lw=1,
+                label=f"trend {tr:+.1f} ms per hour")
+        ax.legend(loc="upper right")
+    lim = max(half * 1.6, np.abs(r).max() * 1.15)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel("Session time (min)")
+    ax.set_ylabel("ms")
+    se = rep.get("offset_se_s")
+    _titled(ax, f"Each flash: seen minus sent, after the offset of {rep['offset_s'] * 1e3:+.1f}"
+                + (f" ± {se * 1e3:.1f}" if se is not None else "") + " ms",
+            f"Grey: ± half a frame ({half:.1f} ms), the most a flash can be off in a picture. "
+            f"{rep['n_matched']} of {rep.get('n_sync_in_view', rep['n_sync'])} flashes seen.")
+
+
+def _frame_rate(ax, cams: dict) -> None:
+    if not cams:
+        _titled(ax, "Did each camera keep pace?")
+        _empty(ax, "No camera")
+        return
+    lo, hi = np.inf, 0.0
+    for c, (cid, sy) in enumerate(cams.items()):
+        t, cam = sy.get("frame_t"), sy["report"].get("camera") or {}
+        if t is None or len(t) < 2:
+            continue
+        col = CAM_COLORS[c % len(CAM_COLORS)]
+        tr = cam.get("trigger") or {}
+        target = tr["fps"] if tr.get("locked") else cam.get("fps_set")
+        span = t[-1] - t[0]
+        w = max(span / 120, min(5.0, span / 10))  # windows of 5 s, more for long sessions, fewer for short ones
+        edges = np.arange(t[0], t[-1], w)
+        if len(edges) < 2:
+            continue
+        rate = np.histogram(t, edges)[0] / w
+        ax.step(edges[:-1] / 60, rate, where="post", color=col, lw=1.1, label=cid)
+        lo, hi = min(lo, rate.min(), 0.95 * (target or rate.max())), max(hi, rate.max(), target or 0.0)
+        if target:
+            ax.axhline(target, color=col, lw=0.8, ls="--", alpha=0.7)
+        gaps = t[1:][np.diff(t) > 1.5 / (target or 30.0)]
+        if len(gaps):
+            ax.plot(gaps / 60, np.full(len(gaps), 0.03), "|", color=col, ms=8, alpha=0.8,
+                    transform=ax.get_xaxis_transform())
+    if hi > 0:
+        pad = 0.08 * (hi - lo) + 0.1
+        ax.set_ylim(lo - 2 * pad, hi + pad)
+    ax.set_xlabel("Session time (min)")
+    ax.set_ylabel("frames per second")
+    ax.legend(loc="lower right", ncols=4)
+    _titled(ax, "Did each camera keep pace?",
+            "Frames per second in short windows; dashed: the rate set or the trigger's; ticks: missing frames.")
+
+
+def _frame_timing(ax, cams: dict) -> None:
+    trig = [cid for cid, sy in cams.items()
+            if ((sy["report"].get("camera") or {}).get("trigger") or {}).get("locked")]
+    if trig:
+        for c, (cid, sy) in enumerate(cams.items()):
+            if cid not in trig:
+                continue
+            t = sy["frame_t"]
+            d = (sy["frame_t_own"] - t) * 1e6
+            step = max(1, len(t) // 4000)
+            ax.scatter(t[::step] / 60, (d - np.median(d))[::step], s=2, lw=0, alpha=0.5,
+                       color=CAM_COLORS[c % len(CAM_COLORS)], label=cid)
+        ax.axhline(0, color=AXIS, lw=0.8)
+        ax.set_xlabel("Session time (min)")
+        ax.set_ylabel("µs")
+        ax.legend(loc="upper left", markerscale=4)
+        period = 1e3 / ((cams[trig[0]]["report"]["camera"]["trigger"]).get("fps") or 30.0)
+        _titled(ax, "Each frame's own timestamp minus its trigger pulse",
+                f"Within µs: every frame was taken on its pulse (one pulse off would be {period:.1f} ms). "
+                "A slow slope is the two clocks' fits.")
+        return
+    shown = False
+    for c, (cid, sy) in enumerate(cams.items()):
+        t = sy.get("frame_t")
+        if t is None or len(t) < 2:
+            continue
+        shown = True
+        ax.hist(np.diff(t) * 1e3, bins=80, color=CAM_COLORS[c % len(CAM_COLORS)], alpha=0.6, label=cid)
+    if not shown:
+        _titled(ax, "Time between frames")
+        _empty(ax, "No camera")
+        return
+    ax.set_yscale("log")
+    ax.set_xlabel("Time between frames (ms)")
+    ax.set_ylabel("frames")
+    ax.legend(loc="upper right")
+    _titled(ax, "Time between frames", "One peak at 1/fps; a dropped frame adds a bump at twice that.")
+
+
+def _serial_delay(ax, P) -> None:
+    raw = P.raw
+    for seg, f in P.sync["rfid_fits"].items():
+        g = raw[(raw["segment"] == seg) & raw["arduino_us"].notna()]
+        lat = (g["host_t"].to_numpy() - f(g["arduino_us"].to_numpy() / 1e6)) * 1000
+        ax.scatter(g["host_t"] / 60, lat, s=2, color=S_MANUAL, alpha=0.4, lw=0)
+    ax.set_xlabel("Session time (min)")
+    ax.set_ylabel("ms")
+    ax.grid(axis="y")
+    ax.set_axisbelow(True)
+    _titled(ax, "RFID board to PC: delay of each serial line after the clock fit",
+            "The fit follows the fastest lines (0 ms); the rest is USB and operating-system delay, which the RFID "
+            "times leave out.")
 
 
 def sound_ethogram(linked, bouts, labels, rois, subjects, coverage, out: Path, t_end: float) -> Path:

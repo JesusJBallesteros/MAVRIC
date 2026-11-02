@@ -146,21 +146,23 @@ def camera_drops(frames: pd.DataFrame) -> dict:
 # --------------------------------------------------------------------------- LED validation
 
 
-def led_onsets(frames: pd.DataFrame, t_frames: np.ndarray, fps: float) -> tuple[np.ndarray, str]:
-    """Rising edges of the sync LED as seen by the camera (onset midway between frames)."""
-    state = None
-    method = "none"
+def led_signal(frames: pd.DataFrame) -> tuple[np.ndarray | None, np.ndarray | None, str]:
+    """The sync LED in each frame: (on, level from 0 = off to 1 = on, method), or (None, None, "none")."""
     if "line_status" in frames and frames["line_status"].notna().all() and frames["line_status"].nunique() > 1:
         ls = frames["line_status"].to_numpy(dtype=np.int64)
-        base = pd.Series(ls).mode().iloc[0]
-        state = ls != base
-        method = "camera_line"
-    elif "led_mean" in frames and frames["led_mean"].notna().sum() > 10:
+        on = ls != pd.Series(ls).mode().iloc[0]
+        return on, on.astype(float), "camera_line"
+    if "led_mean" in frames and frames["led_mean"].notna().sum() > 10:
         v = frames["led_mean"].to_numpy(float)
         lo, hi = np.nanpercentile(v, 5), np.nanpercentile(v, 99.5)
         if hi - lo > 20:
-            state = v > (lo + hi) / 2
-            method = "led_roi"
+            return v > (lo + hi) / 2, (v - lo) / (hi - lo), "led_roi"
+    return None, None, "none"
+
+
+def led_onsets(frames: pd.DataFrame, t_frames: np.ndarray, fps: float) -> tuple[np.ndarray, str]:
+    """Rising edges of the sync LED as seen by the camera (onset midway between frames)."""
+    state, _level, method = led_signal(frames)
     if state is None:
         return np.array([]), method
     idx = np.flatnonzero(state[1:] & ~state[:-1]) + 1
@@ -194,7 +196,10 @@ def match_pulses(led_t: np.ndarray, sync_t: np.ndarray, fps: float, max_offset_s
     li = np.array([p[0] for p in pairs])
     sj = np.array([p[1] for p in pairs])
     diff = led_t[li] - sync_t[sj]
-    off = float(np.median(diff))
+    # each flash is off by up to half a frame, evenly spread: their mean pins the offset down ~1.7x better than the
+    # median does; pairs further than a frame from the median (stray matches) are left out of it
+    core = np.abs(diff - np.median(diff)) <= max(1.0 / fps, 0.02)
+    off = float(np.mean(diff[core]))
     r = np.abs(diff - off)
     res.update(
         n_matched=int(len(pairs)),
@@ -203,6 +208,15 @@ def match_pulses(led_t: np.ndarray, sync_t: np.ndarray, fps: float, max_offset_s
         resid_p95_abs_s=float(np.percentile(r, 95)),
         pairs=[(float(led_t[a]), float(sync_t[b])) for a, b in pairs],
     )
+    if core.sum() >= 3:
+        # one flash is known to within a frame; all of them together pin the offset down to a fraction of that
+        d, x = diff[core], led_t[li][core]
+        res["offset_se_s"] = float(np.std(d, ddof=1) / np.sqrt(len(d)))
+        if np.ptp(x) > 0:  # does the offset change over the session (clocks drifting apart)?
+            slope, icpt = np.polyfit(x, d, 1)
+            e = d - (slope * x + icpt)
+            se = np.sqrt(np.sum(e ** 2) / max(len(x) - 2, 1) / np.sum((x - x.mean()) ** 2))
+            res["trend_ms_per_h"], res["trend_se_ms_per_h"] = float(slope * 3.6e6), float(se * 3.6e6)
     return res
 
 
@@ -216,6 +230,7 @@ def synchronise(raw: pd.DataFrame, frames: pd.DataFrame | None, cam_info: dict |
         tick_hz = camera_tick_hz(cam_info)
         cam_fit = fit_camera_clock(frames, tick_hz)
         t_frames = frame_times(frames, cam_fit, tick_hz)
+        out["frame_t_own"] = t_frames  # from the camera's own clock, before any trigger lock
         trig = None
         if cam_info.get("frame_trigger"):  # each frame at its trigger pulse's time (on the RFID clock)
             from .frame_trigger import lock_frames, trigger_runs
@@ -226,7 +241,9 @@ def synchronise(raw: pd.DataFrame, frames: pd.DataFrame | None, cam_info: dict |
             else:
                 trig = {"locked": False, "why": "no TRIG lines in the RFID log (frame trigger not running?)"}
         out["cam_fit"], out["frame_t"] = cam_fit, t_frames
-        report["camera"] = {"fit": cam_fit.as_dict() if cam_fit else None, "n_frames": int(len(frames)),
+        report["camera"] = {"id": cam_info.get("id"), "fps_set": fps,
+                            "frame_trigger": bool(cam_info.get("frame_trigger")),
+                            "fit": cam_fit.as_dict() if cam_fit else None, "n_frames": int(len(frames)),
                             **camera_drops(frames)}
         if trig is not None:
             report["camera"]["trigger"] = trig
@@ -238,6 +255,13 @@ def synchronise(raw: pd.DataFrame, frames: pd.DataFrame | None, cam_info: dict |
         m = match_pulses(onsets, sync_t, fps)
         m["method"] = method
         frame_s = 1.0 / fps
+        m["frame_s"] = frame_s
+        if len(t_frames):  # the flashes sent while the camera recorded: each should be in the picture
+            seen = sync_t + (m["offset_s"] or 0.0)
+            m["n_sync_in_view"] = int(np.sum((seen > t_frames[0]) & (seen < t_frames[-1])))
+            m["n_missed"] = max(m["n_sync_in_view"] - m["n_matched"], 0)
+            m["n_extra"] = m["n_led"] - m["n_matched"]
+        out["sync_t"], out["led_level"] = sync_t, led_signal(frames)[1]
         validated = m["n_matched"] >= 5
         m["validated"] = bool(validated)
         if validated:

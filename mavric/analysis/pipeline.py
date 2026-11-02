@@ -15,6 +15,7 @@ from .compare import compare, time_budget, transitions
 from .io import load_frames, load_rfid_raw
 from .labels_io import load_coverage, load_labels
 from .sync import synchronise
+from .sync_check import camera_syncs, sync_lines
 
 
 @dataclass
@@ -109,6 +110,11 @@ def run_analysis(
     out = sess.analysis_dir
     rois = P.rois
 
+    cam_sync = camera_syncs(P)  # every camera's clock, trigger and LED check, for the sync report and figure
+    P.sync["cameras"] = cam_sync
+    P.sync["report"]["cameras"] = {cid: {k: sy["report"].get(k) for k in ("camera", "led")}
+                                   for cid, sy in cam_sync.items()}
+
     P.samples.to_csv(out / "rfid_samples.csv", index=False)
     P.bouts.to_csv(out / "rfid_bouts.csv", index=False)
     if P.frame_t is not None:
@@ -151,6 +157,8 @@ def run_analysis(
         summary["camera_positions"] = positions
     if trigger is not None:
         summary["frame_trigger"] = trigger
+    summary["sync_text"] = sync_lines(P.sync["report"], cam_sync, trigger)
+    (out / "sync_summary.txt").write_text("\n".join(summary["sync_text"]) + "\n", encoding="utf-8")
     tb = time_budget(rfid_used, rois)
     tb.to_csv(out / "time_budget_rfid.csv")
 

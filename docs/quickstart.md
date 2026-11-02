@@ -436,7 +436,7 @@ sessions/20261029_101500_demo/
 
 | File | Contents |
 |---|---|
-| `analysis/` | `sync_report.json` (clock fits, sync check **PASS**/FAIL), `camera_positions.json` (did a camera move), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), sounds linked to places (`sound_events_linked.csv`, `call_rates.csv`, `playback_responses.csv`, `playback_by_subject.csv`), `sound_proposals.csv`, `annotated_<cam>.mp4`, `timeline/` ([reference](reference.md#3-analyze-mavric-analyze-session)) |
+| `analysis/` | `sync_summary.txt` and `sync_report.json` (the sync check **PASS**/FAIL, in words and in numbers), `camera_positions.json` (did a camera move), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), sounds linked to places (`sound_events_linked.csv`, `call_rates.csv`, `playback_responses.csv`, `playback_by_subject.csv`), `sound_proposals.csv`, `annotated_<cam>.mp4`, `timeline/` ([reference](reference.md#3-analyze-mavric-analyze-session)) |
 | `<cam>_compressed.mp4` | The H.264 copy from `mavric compress` (every frame, constant rate) |
 
 The `pigeon` column name in the label and analysis tables is historical; it holds the subject name from `tags.csv`.

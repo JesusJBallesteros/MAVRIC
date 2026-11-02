@@ -128,7 +128,8 @@ def lock_frames(t_est: np.ndarray, runs: list[TriggerRun], fits: dict) -> tuple[
     r = np.concatenate(resid)
     ps_all = np.mean([f.slope for f in fits.values()]) * runs[0].period_us / 1e6
     locked_share = float(np.mean(np.abs(r) < LOCK_TOL))
-    rep.update(fps=runs[0].fps, assigned=int((run_of >= 0).sum()), locked_share=locked_share,
+    assigned = int((run_of >= 0).sum())
+    rep.update(fps=runs[0].fps, assigned=assigned, pulses=assigned + missed, locked_share=locked_share,
                spread_ms=float(np.std(r) * ps_all * 1e3), phase_ms=float(np.mean(phases) * 1e3),
                missed_pulses=missed, duplicates=dup)
     rep["locked"] = bool(locked_share >= LOCK_SHARE and dup == 0)
@@ -140,8 +141,9 @@ def lock_frames(t_est: np.ndarray, runs: list[TriggerRun], fits: dict) -> tuple[
 
 
 def frame_sets(sess, raw: pd.DataFrame, fits: dict) -> tuple[pd.DataFrame, dict]:
-    """Every pulse of the frame trigger with each frame-triggered camera's frame on it: (run, pulse, t,
-    frame_<cam> ...), and a report per camera. A pulse with a frame from every camera is a 3D set."""
+    """Every pulse of the frame trigger during the recording with each frame-triggered camera's frame on it: (run,
+    pulse, t, frame_<cam> ...; empty where a camera has none), and a report per camera. A pulse with a frame from
+    every camera is a 3D set."""
     from .io import load_frames
     from .sync import camera_tick_hz, fit_camera_clock, frame_times
 
@@ -165,9 +167,12 @@ def frame_sets(sess, raw: pd.DataFrame, fits: dict) -> tuple[pd.DataFrame, dict]
     if not parts:
         return pd.DataFrame(columns=["run", "pulse", "t"]), reps
     long = pd.concat(parts)
-    sets = long.pivot_table(index=["run", "pulse"], columns="camera", values="frame_idx", aggfunc="first")
-    sets.columns = [f"frame_{c}" for c in sets.columns]
-    sets = sets.astype("Int64").reset_index()
-    t = long.groupby(["run", "pulse"])["t"].first().reset_index()
-    sets = t.merge(sets, on=["run", "pulse"]).sort_values(["run", "pulse"]).reset_index(drop=True)
-    return sets, reps
+    pulses = []  # every pulse from the first to the last frame of each run, also those no camera took
+    for i, g in long.groupby("run"):
+        run = runs[int(i)]
+        k = np.arange(g["pulse"].min(), g["pulse"].max() + 1)
+        pulses.append(pd.DataFrame({"run": int(i), "pulse": k, "t": fits[run.segment](run.us(k) / 1e6)}))
+    wide = long.pivot_table(index=["run", "pulse"], columns="camera", values="frame_idx", aggfunc="first")
+    wide.columns = [f"frame_{c}" for c in wide.columns]
+    sets = pd.concat(pulses).merge(wide.astype("Int64").reset_index(), on=["run", "pulse"], how="left")
+    return sets.sort_values(["run", "pulse"]).reset_index(drop=True), reps

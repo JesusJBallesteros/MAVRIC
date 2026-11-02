@@ -841,8 +841,9 @@ Writes `analysis/` in the session folder:
 
 | File | Content |
 |---|---|
-| `sync_report.json` | Clock fits (offset, drift ppm, latency), LED/SYNC match and residuals, stream health (dropped rounds, bad lines, checksum failures, unknown tags) |
-| `frame_sets.csv` | With the frame trigger: every pulse (`run`, `pulse`, `t`) and each frame-triggered camera's frame on it (`frame_<cam>`): frames taken together, for 3D |
+| `sync_summary.txt` | The sync check in words, as `mavric analyze` prints it ([below](#the-sync-check)) |
+| `sync_report.json` | Clock fits (offset, drift ppm, latency); per camera (`cameras`) its pace, frame trigger and LED/SYNC match (offset ± its uncertainty, change per hour, flashes missed and extra); stream health (dropped rounds, bad lines, checksum failures, unknown tags) |
+| `frame_sets.csv` | With the frame trigger: every pulse during the recording (`run`, `pulse`, `t`) and each frame-triggered camera's frame on it (`frame_<cam>`, empty where it has none): frames taken together, for 3D |
 | `camera_positions.json` | Each camera against its reference view: 7 pictures over the recording, the level (in place, shifted, moved) and since when, whether the sync LED flashes in its box, and what acquisition measured |
 | `rfid_samples.csv`, `rfid_bouts.csv` | Tag reads on the session timeline; bouts per subject × place |
 | `comparison_bins.csv`, `accuracy_per_roi.csv`, `accuracy_per_pigeon.csv`, `confusion_seconds.csv`, `event_matching.csv` | RFID vs labels |
@@ -852,8 +853,42 @@ Writes `analysis/` in the session folder:
 | `playback_responses.csv` | One row per played sound: `window_s`, `reviewed_frac`, `n_before`, `n_after`, rates before and after, `first_latency_s`, `first_emitter`, `responders`, `present_rfid` |
 | `playback_by_subject.csv` | Played sound × subject: where the subject was (`place_rfid`), its answers (`n_after`) and first latency |
 | `sound_events_summary.csv` | Count and total duration per type and emitter |
-| `*.png` | Occupancy timeline per subject, accuracy per place, confusion, bout timing error, time budget, transitions, sync diagnostics; with sounds, `sound_ethogram`, `call_rates`, `playback_response` |
+| `*.png` | Occupancy timeline per subject, accuracy per place, confusion, bout timing error, time budget, transitions, the sync check (`sync_diagnostics`); with sounds, `sound_ethogram`, `call_rates`, `playback_response` |
 | `summary.json` | Everything above, in one file |
+
+#### The sync check
+
+`mavric analyze` prints it (and writes `sync_summary.txt`), per camera:
+- **The RFID board's clock:** how fast or slow its crystal runs against the PC (corrected), and the serial delay the
+  clock fit removes.
+- **Pace:** free-running, the frames per second and the frames dropped by the camera and by the recorder. On the
+  frame trigger, the pulses sent while the camera recorded and how many have a frame.
+- **Frame trigger:** how far each frame's own timestamp sits from its pulse. Microseconds mean every frame was taken
+  on its pulse (one pulse off would be a whole period away). Each frame then takes its pulse's time.
+- **Sync LED:** the flashes sent while the camera recorded, how many it saw, and any extra ones (something else
+  changing in the SYNC box).
+  - **One flash** can only be placed between two frames, so it shows up to half a frame early or late (±16.7 ms at
+    30 fps). That spread comes from the frame rate, not from the sync.
+  - **All flashes together:** flashes fall at random points between frames, so their average gives the offset
+    between video and RFID times to a fraction of a frame, e.g. +1.2 ± 0.8 ms from 150 flashes at 30 fps (± is
+    the standard error). A free-running camera gets this offset applied. Frames on the frame trigger already have
+    the pulses' times, so for them it is a check and should be 0 within its ±.
+  - **Over the session:** whether the offset changes (clocks drifting apart), in ms per hour.
+  - **PASS:** half the flashes within one frame, 95 % within 0.1 s.
+- **3D:** with two or more frame-triggered cameras, the pulses with a frame from every camera.
+
+`sync_diagnostics.png` shows the same:
+1. **Every LED flash, lined up on when it was sent:** the LED in each frame against the time since its `SYNC` line,
+   all flashes on top of each other, and their average. The rise sits at the offset; how sharp it is shows how
+   well the times agree.
+2. **Each flash: seen minus sent,** over the session, within the grey band of ± half a frame. A slope is drift.
+3. **Did each camera keep pace?** Frames per second in short windows, against the rate set or the trigger's
+   (dashed); ticks mark missing frames.
+4. **Frames against their trigger pulses:** each frame's own timestamp minus its pulse, in µs. Without the trigger:
+   the **time between frames**, one peak at 1/fps and a bump at 2/fps for dropped frames.
+5. **RFID board to PC:** each serial line's delay after the clock fit.
+
+![The sync check](images/analysis_sync_diagnostics.png)
 
 **Metrics.** Computed per place, in time bins (default 0.5 s) within the reviewed coverage:
 
@@ -926,9 +961,16 @@ Sessions without video use the audio's own clock (seconds from the first sample)
 3. **Camera clock fit.** Camera hardware timestamps are fitted to host time the same way.
 4. **LED validation.** The firmware logs each LED rising edge. The camera sees it, either as brightness in the LED box
    or as a GPIO line state. After steps 2–3 the two pulse trains must coincide.
-   - The constant pipeline offset between them is measured and applied.
-   - **Acceptance:** median |residual| < 1 frame and p95 < 100 ms.
-   - The random intervals make matching robust to missed or extra pulses.
+   - The constant pipeline offset between them is the mean over the matched flashes (pairs more than a frame from
+     the median left out), with its standard error, and is applied.
+   - **Acceptance:** median |residual| < 1 frame and p95 < 100 ms. What the numbers mean: [the sync
+     check](#the-sync-check).
+   - **Why random intervals (2–6 s), not regular flashes:**
+     - Every gap between flashes is different, so the flashes fit the `SYNC` lines at one shift only. Regular
+       flashes would fit equally well shifted by whole periods, and a missed flash could slip the match.
+     - Random times fall at random points between frames, so their average pins the offset down to a fraction of
+       a frame. Regular flashes at a rate related to the frame rate would hit the same points every time, and the
+       average would not improve.
 5. **Audio.** The same sync pulse is recorded on an audio input.
    - Its edges are found to a fraction of a sample and matched to the `SYNC` lines.
    - Audio samples are mapped to session time by interpolating through the matched pulses.
@@ -954,10 +996,11 @@ moment by every camera.
   taken out. When at least 95 % of the frames sit within a quarter period of their pulse and none share one, the
   camera counts as **locked**: its frames take their pulses' times, and the LED offset is not applied (the frames
   are on the RFID clock already; the LED still checks them). Otherwise the camera's own clock stays.
-  - `sync_report.json → camera.trigger`: locked or why not, the frames' spread around their pulses, pulses without a
-    frame (dropped frames), the run's period.
-  - `analysis/frame_sets.csv`: `run`, `pulse`, `t`, then `frame_<cam>` for each frame-triggered camera: the frames
-    taken together, for triangulation.
+  - `sync_report.json → camera.trigger`: locked or why not, the frames' spread around their pulses, the pulses
+    while the camera recorded and those without a frame (dropped frames), the run's period. [The sync
+    check](#the-sync-check) says it in words and shows it.
+  - `analysis/frame_sets.csv`: every pulse during the recording (`run`, `pulse`, `t`), then `frame_<cam>` for each
+    frame-triggered camera (empty where it missed the pulse): the frames taken together, for triangulation.
 - **Simulation:** `mavric simulate --frame-trigger 30` (one camera, offline), or synthetic cameras with
   `frame_trigger: true` in `mavric acquire --sim` (the simulated RFID board answers `F<fps>`). In the simulated
   session each frame's time matches its true exposure within 0.02 ms (SD).

@@ -84,32 +84,11 @@ def cmd_analyze(args):
                      use_curated=args.curated, response_window_s=args.window)
     sy = s["sync"]
     print(f"session {s['session']}")
-    for seg, f in sy.get("rfid_segments", {}).items():
-        print(f"  RFID clock seg {seg}: drift {f['drift_ppm']:+.1f} ppm, latency median {f['latency_med_s'] * 1e3:.1f} ms")
-    cam = sy.get("camera")
-    if cam:
-        fit = cam.get("fit")
-        print(f"  camera: {cam['n_frames']} frames, camera drops {cam['camera_dropped']}, recorder drops "
-              f"{cam['recorder_dropped']}" + (f", drift {fit['drift_ppm']:+.1f} ppm" if fit else ", no hw timestamps"))
-    led = sy.get("led")
-    if led:
-        if led.get("validated"):
-            print(f"  LED/SYNC: {led['n_matched']}/{led['n_sync']} matched, offset {led['offset_s'] * 1e3:+.1f} ms, "
-                  f"|resid| median {led['resid_med_abs_s'] * 1e3:.1f} ms p95 {led['resid_p95_abs_s'] * 1e3:.1f} ms "
-                  f"-> {'PASS' if led.get('pass') else 'FAIL'}")
-        else:
-            print(f"  LED/SYNC: not validated ({led['n_led']} LED onsets, {led['n_sync']} SYNC lines)")
+    print("  sync (figure: analysis/sync_diagnostics.png; text: analysis/sync_summary.txt)")
+    for line in s.get("sync_text") or []:
+        print(f"    {line}")
     for line in s.get("camera_positions") or []:
         print(f"  camera {line}")
-    ft = s.get("frame_trigger")
-    if ft:
-        for cid, r in ft["cameras"].items():
-            print(f"  frame trigger {cid}: " + (f"locked, {r['assigned']} frames at {r['fps']:.2f} fps, "
-                                                f"{r['missed_pulses']} pulse(s) without a frame, within "
-                                                f"{r['spread_ms']:.2f} ms" if r["locked"] else
-                                                f"NOT locked: {r.get('why', '')}"))
-        print(f"  frame trigger: {ft['complete_sets']} of {ft['pulses']} pulses have a frame from every camera "
-              "(analysis/frame_sets.csv)")
     au = sy.get("audio")
     if au:
         pu = au["pulses"]
