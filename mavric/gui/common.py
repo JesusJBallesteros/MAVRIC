@@ -17,6 +17,7 @@ pg.setConfigOptions(imageAxisOrder="row-major", antialias=True, background="#fcf
 
 GRAY = "#aaaaaa"
 RED = "#e34948"
+HANDLE_RADIUS = 9  # px: ROI corner handles, about 18 px across (pyqtgraph's 5 are hard to grab)
 
 
 def to_rgb(img: np.ndarray) -> np.ndarray:
@@ -52,18 +53,37 @@ class Worker(QtCore.QObject):
             self.failed.emit(f"{type(e).__name__}: {e}\n\n{traceback.format_exc()}")
 
 
+class _BigHandles:
+    """ROI corner handles that are easy to grab: larger, with a thicker outline (also the corners added later by
+    clicking an edge)."""
+
+    def addHandle(self, info, index=None):
+        self.handleSize = HANDLE_RADIUS
+        return super().addHandle(info, index=index)
+
+
+class _PolyRoi(_BigHandles, pg.PolyLineROI):
+    pass
+
+
+class _RectRoi(_BigHandles, pg.RectROI):
+    pass
+
+
 class _RoiGraphics:
     def __init__(self, view: pg.ViewBox, roi: Roi, editable: bool):
         self.roi = roi
         self.kind = roi.kind
         pen = pg.mkPen(GRAY, width=2)
+        handles = {"handlePen": pg.mkPen((150, 255, 255), width=2), "handleHoverPen": pg.mkPen((255, 255, 0), width=3)}
         if roi.kind == "sync":
             xs = [p[0] for p in roi.points]
             ys = [p[1] for p in roi.points]
-            self.item = pg.RectROI([min(xs), min(ys)], [max(xs) - min(xs), max(ys) - min(ys)], pen=pg.mkPen("#eda100", width=2),
-                                   movable=editable, resizable=editable, rotatable=False)
+            self.item = _RectRoi([min(xs), min(ys)], [max(xs) - min(xs), max(ys) - min(ys)],
+                                 pen=pg.mkPen("#eda100", width=2), movable=editable, resizable=editable,
+                                 rotatable=False, **handles)
         else:
-            self.item = pg.PolyLineROI(roi.points, closed=True, pen=pen, movable=editable)
+            self.item = _PolyRoi(roi.points, closed=True, pen=pen, movable=editable, **handles)
         self.item.setZValue(10)
         view.addItem(self.item)
         self.text = pg.TextItem("", anchor=(0, 1), color="#ffffff", fill=qcolor("#0b0b0b", 160))

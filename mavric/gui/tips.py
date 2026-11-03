@@ -27,29 +27,33 @@ ACQUIRE = {
     "New reference": "Make the shown camera's view now (every camera's, in All cameras) its reference view: only "
                      "when the places drawn on it are right",
     # ROIs
-    "Place ROIs (one per antenna) and sync LED": "Regions drawn on the first camera: one per antenna (place), plus a "
-                                                 "box over the sync LED",
-    "Draw / reset": "Place a new ROI for this antenna; drag its corners onto the place (Edit ROIs must be on)",
-    "Draw / reset sync LED box": "Place the box over the sync LED; its brightness must jump with every flash",
-    "Edit ROIs (drag corners; click an edge to add a corner)": "Unlock the ROIs for editing (on the ROI camera view)",
+    "Edit ROIs": "Unlock the ROIs for editing (on the ROI camera view): drag the corners; click an edge to add a "
+                 "corner",
     "Save ROIs to rig": "Save the ROIs to config/rois.json; every new recording uses them",
     # live / recording / outputs
-    "Live RFID": "Tags read right now, per place",
-    "Recording": "Session name, notes and the record button",
     "● Start recording": "Start or stop a session: RFID, video, audio and clips go to sessions/<date>_<name>",
-    "Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)": "Things that happen when RFID detects "
-                                                                            "a subject",
     "Outputs…": "Devices (I/O Arduino, Intan, MATLAB, programs, network, speakers), RFID rules, and camera clip "
                 "rules",
     "Arm outputs": "Outputs fire only while armed; disarming releases every held output and stops every sound",
-    "Audio inputs": "Peak level per input (dBFS) with a falling peak hold; CLIP marks overload. The sync input "
-                    "counts the pulses it receives.",
     # soundboard
-    "Soundboard": "Play stimuli by hand on any speaker; logged like rule actions (actions.csv, audio_playback.csv)",
     "↻ sounds": "Reload the sound library (audio.sounds_dir, default sounds/) after adding or changing files",
     "loop": "Repeat the sound until Stop all sounds (or disarming)",
     "▶ Play sound": "Play the chosen sound on the chosen speaker(s) now",
     "■ Stop all sounds": "Fade out every sound, from the soundboard and from rules (disarming does this too)",
+}
+
+ACQUIRE_PANELS = {  # by panel title
+    "Devices": "Connect the RFID reader, the cameras and the audio interface; the camera shown; each camera's "
+               "calibration and whether it moved",
+    "ROIs and LED": "Regions drawn on the first camera: one per antenna (place), plus a box over the sync LED",
+    "Live RFID": "Tags read right now, per place; arrivals, departures and output actions below",
+    "Recording": "Session name, notes and the record button",
+    "Outputs": "Things that happen when RFID detects a subject (TTL, Intan, MATLAB, sounds, messages, camera "
+               "clips), set up in Settings → Outputs…",
+    "Audio inputs": "Peak level per input (dBFS) with a falling peak hold; CLIP marks overload. The sync input "
+                    "counts the pulses it receives.",
+    "Soundboard": "Play stimuli by hand on any speaker; logged like rule actions (actions.csv, audio_playback.csv)",
+    "Status": "Stream status: RFID line rate, the frame trigger, camera frame rates, recording, clips, audio",
 }
 
 ACQUIRE_ATTR = {

@@ -316,7 +316,7 @@ Keep each exposure shorter than one frame interval (Acquire warns).
 ## 6. I/O Arduino: event-driven outputs
 
 A second, **dedicated** Arduino (Uno, Nano, Nano Every or MEGA) runs `firmware/MAVRIC_IO`. MAVRIC switches its pins
-when output rules fire (acquire GUI → **Outputs…**). The RFID MEGA is left untouched.
+when output rules fire (acquire GUI → **Settings → Outputs…**). The RFID MEGA is left untouched.
 
 ### 6.1 Board
 

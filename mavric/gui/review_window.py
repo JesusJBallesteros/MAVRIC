@@ -263,9 +263,9 @@ class ReviewWindow(QtWidgets.QMainWindow):
         help_.setWordWrap(True)
         v.addWidget(help_)
         v.addStretch(1)
-        from .help_dialogs import help_about_row
+        from .help_dialogs import add_help_menu
 
-        v.addLayout(help_about_row(self, "review"))
+        add_help_menu(self, "review")
 
         left = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         if self.video is not None:

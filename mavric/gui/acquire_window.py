@@ -16,11 +16,42 @@ from ..rfid.serial_reader import Presence, list_ports
 from ..video.drift import LEVEL_TEXT, steady
 from .camera_grid import CameraGrid
 from .common import GRAY, RED, VideoView, Worker, message, swatch
+from .panels import Panel, PanelLayout
 
 GRID = "__all__"  # view_combo data for the all-cameras grid
 POSITION_TIP = ("Each camera against its reference view, every 10 s: ✓ in place, ⚠ shifted a little or moved (the "
                 "places are drawn off by that much). The reference is the view the ROIs and the camera position were "
                 "made for, taken at the first recording after they were saved")
+RIGHT = QtCore.Qt.DockWidgetArea.RightDockWidgetArea
+BOTTOM = QtCore.Qt.DockWidgetArea.BottomDockWidgetArea
+PANELS = {  # name: title, icon symbol, icon colour, where it goes by default (in this order)
+    "devices": ("Devices", "⇄", "#2a78d6", RIGHT),
+    "rois": ("ROIs and LED", "▱", "#eda100", RIGHT),
+    "rfid": ("Live RFID", "◉", "#6250d6", RIGHT),
+    "recording": ("Recording", "●", "#e34948", RIGHT),
+    "outputs": ("Outputs", "⚡", "#eb6834", RIGHT),
+    "audio": ("Audio inputs", "≋", "#1baf7a", BOTTOM),
+    "sound": ("Soundboard", "♫", "#008300", BOTTOM),
+    "status": ("Status", "ℹ", "#52514e", BOTTOM),
+}
+SIDE_WIDTH = 430  # px: the right-hand panels by default
+
+
+def _body(layout=QtWidgets.QGridLayout):
+    w = QtWidgets.QWidget()
+    lay = layout(w)
+    lay.setContentsMargins(6, 4, 6, 6)
+    return w, lay
+
+
+def _small(text: str, tip: str = "") -> QtWidgets.QToolButton:
+    """A compact button that takes the width it is given."""
+    b = QtWidgets.QToolButton()
+    b.setText(text)
+    if tip:
+        b.setToolTip(tip)
+    b.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+    return b
 
 
 class AcquireWindow(QtWidgets.QMainWindow):
@@ -34,7 +65,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.rig = ctl.rig
         self.antennas: dict[int, str] = dict(self.rig["antennas"])
         self.setWindowTitle("MAVRIC - Acquire" + ("  [SIMULATION]" if sim else ""))
-        self.resize(1400, 860)
+        self.resize(1500, 920)
         self._last_grab = -1
         self._since: dict[int, float] = {}
         self._ring_count = 0
@@ -55,7 +86,13 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.video = VideoView()
         self.video.load_rois(ctl.rois, editable=False)
         self._rois_shown = ctl.roi_camera
+        self.panels: dict[str, Panel] = {}
         self.setCentralWidget(self._build_layout())
+        self._build_menus()
+        self.layout_store = PanelLayout(self.rig["paths"].get("gui_layout_file"))
+        self.arrange_panels()
+        if self.layout_store.restore(self, self.panels):  # as arranged last time on this rig
+            self._show_audio_panels()
         self.presence_sig.connect(self._on_presence)
         ctl.bus.subscribe("presence", lambda p: self.presence_sig.emit(p))
         self.action_sig.connect(self._on_action)
@@ -72,13 +109,9 @@ class AcquireWindow(QtWidgets.QMainWindow):
 
     # ------------------------------------------------------------------ layout
     def _build_layout(self) -> QtWidgets.QWidget:
-        side = QtWidgets.QWidget()
-        side.setFixedWidth(430)
-        v = QtWidgets.QVBoxLayout(side)
-
+        """The live view (and the spectrograms) in the middle; every other part is a panel (`self.panels`)."""
         # devices
-        g = QtWidgets.QGroupBox("Devices")
-        f = QtWidgets.QGridLayout(g)
+        w, f = _body()
         self.port_combo = QtWidgets.QComboBox()
         self.port_combo.setEditable(True)
         self._refresh_ports()
@@ -101,22 +134,24 @@ class AcquireWindow(QtWidgets.QMainWindow):
         f.addWidget(QtWidgets.QLabel("Camera"), 1, 0)
         f.addWidget(self.cam_combo, 1, 1, 1, 2)
         f.addWidget(self.b_cam, 1, 3)
+        acfg = self.ctl.audio_cfg
+        self.b_audio = QtWidgets.QPushButton("Connect audio")
+        self.b_audio.clicked.connect(self._toggle_audio)
+        f.addWidget(QtWidgets.QLabel("Audio"), 2, 0)
+        f.addWidget(QtWidgets.QLabel(acfg.describe() if acfg.inputs else "not configured"), 2, 1, 1, 2)
+        f.addWidget(self.b_audio, 2, 3)
+        self.b_audio.setEnabled(bool(acfg.inputs))
         self.view_combo = QtWidgets.QComboBox()
         self.view_combo.setToolTip("Connected camera shown in the live view. ROIs are drawn on "
                                    f"{self.ctl.roi_camera} (the first camera in rig.yaml); the other cameras show the "
-                                   "places placed in 3D (Calibrate cameras…, tab 3).")
+                                   "places placed in 3D (Settings → Calibrate cameras…, tab 3).")
         self.view_combo.currentIndexChanged.connect(self._view_changed)
         f.addWidget(QtWidgets.QLabel("View"), 3, 0)
-        f.addWidget(self.view_combo, 3, 1, 1, 2)
-        b_vs = QtWidgets.QPushButton("Video settings…")
-        b_vs.clicked.connect(self._open_video_settings)
-        f.addWidget(b_vs, 3, 3)
+        f.addWidget(self.view_combo, 3, 1, 1, 3)
         self.cal_label = QtWidgets.QLabel("")
+        self.cal_label.setWordWrap(True)
         f.addWidget(QtWidgets.QLabel("Calibration"), 4, 0)
-        f.addWidget(self.cal_label, 4, 1, 1, 2)
-        b_cal = QtWidgets.QPushButton("Calibrate cameras…")
-        b_cal.clicked.connect(self._open_calibration)
-        f.addWidget(b_cal, 4, 3)
+        f.addWidget(self.cal_label, 4, 1, 1, 3)
         self.update_calibration_label()
         self.pos_label = QtWidgets.QLabel("—")
         self.pos_label.setWordWrap(True)
@@ -131,28 +166,20 @@ class AcquireWindow(QtWidgets.QMainWindow):
         b_ref = QtWidgets.QPushButton("New reference")
         b_ref.clicked.connect(self._new_reference)
         f.addWidget(b_ref, 6, 3)
-        acfg = self.ctl.audio_cfg
-        self.b_audio = QtWidgets.QPushButton("Connect audio")
-        self.b_audio.clicked.connect(self._toggle_audio)
-        f.addWidget(QtWidgets.QLabel("Audio"), 2, 0)
-        f.addWidget(QtWidgets.QLabel(acfg.describe() if acfg.inputs else "not configured"), 2, 1, 1, 2)
-        f.addWidget(self.b_audio, 2, 3)
-        self.b_audio.setEnabled(bool(acfg.inputs))
-        v.addWidget(g)
+        f.setColumnStretch(1, 1)
+        self._panel("devices", w)
 
         # audio levels (filled when audio connects)
-        self.audio_box = QtWidgets.QGroupBox("Audio inputs")
-        self.audio_layout = QtWidgets.QVBoxLayout(self.audio_box)
+        w, self.audio_layout = _body(QtWidgets.QVBoxLayout)
         self.audio_label = QtWidgets.QLabel("")
         self.audio_label.setWordWrap(True)
         self.audio_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         self.audio_layout.addWidget(self.audio_label)
-        self.audio_box.setVisible(False)
-        v.addWidget(self.audio_box)
+        self.audio_layout.addStretch(1)
+        self.audio_box = self._panel("audio", w)
 
         # soundboard (shown when audio is connected with speakers)
-        self.sound_box = QtWidgets.QGroupBox("Soundboard")
-        f = QtWidgets.QGridLayout(self.sound_box)
+        w, f = _body()
         self.sb_sound = QtWidgets.QComboBox()
         b_reload = QtWidgets.QPushButton("↻ sounds")
         b_reload.clicked.connect(self._reload_sounds)
@@ -176,34 +203,37 @@ class AcquireWindow(QtWidgets.QMainWindow):
         f.addWidget(b_play, 2, 0, 1, 2)
         f.addWidget(b_stop, 2, 2, 1, 2)
         f.addWidget(self.sb_label, 3, 0, 1, 4)
-        self.sound_box.setVisible(False)
-        v.addWidget(self.sound_box)
+        f.setRowStretch(4, 1)
+        self.sound_box = self._panel("sound", w)
 
-        # ROIs
-        g = QtWidgets.QGroupBox("Place ROIs (one per antenna) and sync LED")
-        f = QtWidgets.QGridLayout(g)
-        for i, (ant, name) in enumerate(sorted(self.antennas.items())):
-            f.addWidget(QtWidgets.QLabel(f"Antenna {ant}: {name}"), i, 0)
-            b = QtWidgets.QPushButton("Draw / reset")
+        # ROIs: one small button per place (antenna) and one for the LED box
+        w, f = _body()
+        f.setHorizontalSpacing(4)
+        f.setVerticalSpacing(3)
+        f.addWidget(QtWidgets.QLabel("Draw:"), 0, 0)
+        items = [(ant, f"{ant} {name}", f"Draw (or reset) the ROI of antenna {ant}, {name}; then drag its corners "
+                                        "onto the place") for ant, name in sorted(self.antennas.items())]
+        items.append((None, "LED box", "Draw (or reset) the box over the sync LED; its brightness must jump with "
+                                       "every flash"))
+        for i, (ant, text, tip) in enumerate(items):
+            b = _small(text, tip)
             b.clicked.connect(lambda _=False, a=ant: self._new_roi(a))
-            f.addWidget(b, i, 1)
-        n = len(self.antennas)
-        b = QtWidgets.QPushButton("Draw / reset sync LED box")
-        b.clicked.connect(lambda: self._new_roi(None))
-        f.addWidget(b, n, 0, 1, 2)
-        self.cb_edit = QtWidgets.QCheckBox("Edit ROIs (drag corners; click an edge to add a corner)")
+            f.addWidget(b, i // 3, 1 + i % 3)
+        n = (len(items) + 2) // 3
+        self.cb_edit = QtWidgets.QCheckBox("Edit ROIs")
         self.cb_edit.toggled.connect(self.video.set_editable)
-        f.addWidget(self.cb_edit, n + 1, 0, 1, 2)
-        b_save = QtWidgets.QPushButton("Save ROIs to rig")
+        f.addWidget(self.cb_edit, n, 0, 1, 2)
+        b_save = _small("Save ROIs to rig")
         b_save.clicked.connect(self._save_rois)
-        f.addWidget(b_save, n + 2, 0, 1, 2)
-        self.led_label = QtWidgets.QLabel("Sync LED box: -")
-        f.addWidget(self.led_label, n + 3, 0, 1, 2)
-        v.addWidget(g)
+        f.addWidget(b_save, n, 2, 1, 2)
+        self.led_label = QtWidgets.QLabel("LED box: -")
+        f.addWidget(self.led_label, n + 1, 0, 1, 4)
+        for c in (1, 2, 3):
+            f.setColumnStretch(c, 1)
+        self._panel("rois", w)
 
         # live RFID
-        g = QtWidgets.QGroupBox("Live RFID")
-        f = QtWidgets.QVBoxLayout(g)
+        w, f = _body(QtWidgets.QVBoxLayout)
         self.table = QtWidgets.QTableWidget(len(self.antennas), 4)
         self.table.setHorizontalHeaderLabels(["Place", "Subject", "Tag", "For (s)"])
         self.table.verticalHeader().setVisible(False)
@@ -218,18 +248,17 @@ class AcquireWindow(QtWidgets.QMainWindow):
                                   + vh.defaultSectionSize() * len(self.antennas) + 6)
         f.addWidget(self.table)
         self.events = QtWidgets.QListWidget()
-        self.events.setFixedHeight(110)
-        f.addWidget(self.events)
-        v.addWidget(g)
+        self.events.setMinimumHeight(54)
+        f.addWidget(self.events, 1)
+        self._panel("rfid", w)
 
         # session
-        g = QtWidgets.QGroupBox("Recording")
-        f = QtWidgets.QGridLayout(g)
+        w, f = _body()
         self.name_edit = QtWidgets.QLineEdit(time.strftime("session"))
         self.notes_edit = QtWidgets.QLineEdit()
         self.notes_edit.setPlaceholderText("notes (subjects, conditions, ...)")
         self.b_rec = QtWidgets.QPushButton("● Start recording")
-        self.b_rec.setMinimumHeight(40)
+        self.b_rec.setMinimumHeight(36)
         self.b_rec.clicked.connect(self._toggle_record)
         self.rec_label = QtWidgets.QLabel("not recording")
         self.rec_label.setWordWrap(True)
@@ -239,48 +268,104 @@ class AcquireWindow(QtWidgets.QMainWindow):
         f.addWidget(self.notes_edit, 1, 1)
         f.addWidget(self.b_rec, 2, 0, 1, 2)
         f.addWidget(self.rec_label, 3, 0, 1, 2)
-        v.addWidget(g)
+        self._panel("recording", w)
 
-        # event-driven outputs
-        g = QtWidgets.QGroupBox("Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)")
-        f = QtWidgets.QGridLayout(g)
-        self.b_outputs = QtWidgets.QPushButton("Outputs…")
-        self.b_outputs.clicked.connect(self._open_outputs)
+        # event-driven outputs (set up in Settings → Outputs…)
+        w, f = _body(QtWidgets.QVBoxLayout)
         self.b_arm = QtWidgets.QPushButton("Arm outputs")
         self.b_arm.setCheckable(True)
         self.b_arm.toggled.connect(self._toggle_arm)
         self.out_label = QtWidgets.QLabel("starting…")
         self.out_label.setWordWrap(True)
         self.out_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
-        f.addWidget(self.b_outputs, 0, 0)
-        f.addWidget(self.b_arm, 0, 1)
-        f.addWidget(self.out_label, 1, 0, 1, 2)
-        v.addWidget(g)
+        f.addWidget(self.b_arm)
+        f.addWidget(self.out_label)
+        f.addStretch(1)
+        self._panel("outputs", w)
 
+        w, f = _body(QtWidgets.QVBoxLayout)
         self.stat_label = QtWidgets.QLabel("")
         self.stat_label.setWordWrap(True)
-        v.addWidget(self.stat_label)
-        v.addStretch(1)
-        from .help_dialogs import help_about_row
+        self.stat_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
+        f.addWidget(self.stat_label)
+        f.addStretch(1)
+        self._panel("status", w)
 
-        v.addLayout(help_about_row(self, "acquire"))
-
-        w = QtWidgets.QWidget()
-        h = QtWidgets.QHBoxLayout(w)
         self.left = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         self.grid = CameraGrid()
         self.stack = QtWidgets.QStackedWidget()
         self.stack.addWidget(self.video)
         self.stack.addWidget(self.grid)
         self.left.addWidget(self.stack)
-        h.addWidget(self.left, 1)
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidget(side)
-        scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(side.width() + 20)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        h.addWidget(scroll)
-        return w
+        return self.left
+
+    def _panel(self, name: str, body: QtWidgets.QWidget) -> Panel:
+        from .tips import ACQUIRE_PANELS
+
+        title, glyph, color, _area = PANELS[name]
+        p = Panel(name, title, glyph, color, body, ACQUIRE_PANELS[title])
+        self.panels[name] = p
+        return p
+
+    def arrange_panels(self) -> None:
+        """The default arrangement: setup, RFID and recording on the right, sound and status under the live view;
+        every panel open."""
+        self.setCorner(QtCore.Qt.Corner.BottomRightCorner, RIGHT)  # the right-hand column runs the full height
+        right = []
+        for name, (_title, _glyph, _color, area) in PANELS.items():
+            p = self.panels[name]
+            p.setFloating(False)
+            self.addDockWidget(area, p)
+            p.set_collapsed(False)
+            p.show()
+            if area == RIGHT:
+                right.append(p)
+        self.resizeDocks(right[:1], [SIDE_WIDTH], QtCore.Qt.Orientation.Horizontal)
+        self._show_audio_panels()
+
+    def _show_audio_panels(self) -> None:
+        """Audio inputs while the audio interface is connected; the Soundboard when it also has speakers."""
+        audio = self.meters is not None
+        for p, on in ((self.audio_box, audio), (self.sound_box, audio and self.ctl.player is not None)):
+            p.setVisible(on)
+            p.toggleViewAction().setEnabled(on)
+
+    def _build_menus(self) -> None:
+        from .help_dialogs import add_help_menu
+        from .tips import ACQUIRE
+
+        mb = self.menuBar()
+        m = mb.addMenu("Settings")
+        m.setToolTipsVisible(True)
+        for text, fn in (("Video settings…", self._open_video_settings),
+                         ("Calibrate cameras…", self._open_calibration), ("Outputs…", self._open_outputs)):
+            a = m.addAction(text)
+            a.triggered.connect(fn)
+            a.setToolTip(ACQUIRE[text])
+            a.setStatusTip(ACQUIRE[text])
+        m = mb.addMenu("Panels")
+        m.setToolTipsVisible(True)
+        for p in self.panels.values():
+            m.addAction(p.toggleViewAction())
+        m.addSeparator()
+        for text, fn, tip in (
+                ("Open all", self._open_all, "Open every collapsed panel"),
+                ("Collapse all", self._collapse_all, "Collapse every panel to its title bar"),
+                ("Default arrangement", self.arrange_panels,
+                 "Put every panel back where it starts, open (the arrangement is saved for this rig on closing)")):
+            a = m.addAction(text)
+            a.triggered.connect(fn)
+            a.setToolTip(tip)
+            a.setStatusTip(tip)
+        add_help_menu(self, "acquire")
+
+    def _open_all(self) -> None:
+        for p in self.panels.values():
+            p.set_collapsed(False)
+
+    def _collapse_all(self) -> None:
+        for p in self.panels.values():
+            p.set_collapsed(True)
 
     # ------------------------------------------------------------------ devices
     def _refresh_ports(self) -> None:
@@ -538,7 +623,6 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self._remove_audio_views()
         self.meters = LevelMeters(cfg.names, cfg.in_channels)
         self.audio_layout.insertWidget(0, self.meters)
-        self.audio_box.setVisible(True)
         mics = [cfg.names[j] for j in cfg.mic_indices]
         if mics:
             self.spec = SpectrogramView(mics, cfg.sample_rate, cfg.display_fmax_hz)
@@ -549,7 +633,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
             self.sb_speaker.clear()
             self.sb_speaker.addItems(["all"] + self.ctl.player.speakers)
             self._fill_sounds()
-            self.sound_box.setVisible(True)
+        self._show_audio_panels()
 
     def _remove_audio_views(self) -> None:
         if self.meters is not None:
@@ -558,8 +642,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         if self.spec is not None:
             self.spec.setParent(None)
             self.spec = None
-        self.audio_box.setVisible(False)
-        self.sound_box.setVisible(False)
+        self._show_audio_panels()
 
     # ------------------------------------------------------------------ soundboard
     def _fill_sounds(self) -> None:
@@ -764,9 +847,9 @@ class AcquireWindow(QtWidgets.QMainWindow):
             self.b_rec.setText("● Start recording")
             raw = any(c.get("record_format") == "raw" for c in sess.meta.get("cameras", []))
             self.rec_label.setText(f"saved: {sess.path}" + ("<br><small>raw video kept; make the shareable / "
-                                                            "DeepLabCut copy with Video settings → Compress a "
-                                                            "session…, or <code>mavric compress &lt;session&gt;</code>"
-                                                            "</small>" if raw else ""))
+                                                            "DeepLabCut copy with Settings → Video settings → "
+                                                            "Compress a session…, or <code>mavric compress "
+                                                            "&lt;session&gt;</code></small>" if raw else ""))
             self._set_devices_enabled(True)
             QtWidgets.QApplication.clipboard().setText(str(sess.path))
             self.statusBar().showMessage("Recording stopped (path copied to clipboard)", 6000)
@@ -930,12 +1013,12 @@ class AcquireWindow(QtWidgets.QMainWindow):
     def _update_led(self, img: np.ndarray) -> None:
         sync = self.current_rois().sync
         if sync is None:
-            self.led_label.setText("Sync LED box: not drawn")
+            self.led_label.setText("LED box: not drawn yet")
             return
         x0, y0, x1, y1 = sync.bbox()
         patch = img[max(0, y0):y1, max(0, x0):x1]
         if patch.size:
-            self.led_label.setText(f"Sync LED box brightness: {patch.mean():.0f} (should jump when the LED flashes)")
+            self.led_label.setText(f"LED box brightness: {patch.mean():.0f} (jumps with each flash)")
 
     # ------------------------------------------------------------------ outputs
     def _start_outputs(self) -> None:
@@ -1012,8 +1095,11 @@ class AcquireWindow(QtWidgets.QMainWindow):
             if r != QtWidgets.QMessageBox.StandardButton.Yes:
                 ev.ignore()
                 return
+        self.layout_store.save(self, self.panels)  # the panels as arranged, for the next start on this rig
         self.timer.stop()
         self.ctl.shutdown()
+        self.video.load_rois(RoiSet())  # the ROI items out of the scene while it exists: pyqtgraph keeps them in
+        # reference cycles, and collected after the scene is gone they can crash Python
         ev.accept()
 
 

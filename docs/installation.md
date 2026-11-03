@@ -277,7 +277,7 @@ on this PC.
 |---|---|
 | `rig.yaml` | `rfid.port` (COM port of the MEGA, or `auto`), `antennas` (reader number → place name), `cameras` (backend `flir`, serial number, fps, `record: continuous` or `triggered`), `audio` (device `MOTU`, `host_api: ASIO`, inputs with the sync input, speakers, `enabled`), `paths.sessions_dir` |
 | `tags.csv` | one row per tag: `tag_id,subject,color` |
-| `outputs.yaml` | I/O Arduino port, rules and camera clips (easier from the acquire window: *Outputs…*) |
+| `outputs.yaml` | I/O Arduino port, rules and camera clips (easier from the acquire window: *Settings → Outputs…*) |
 | `sounds\` | stimuli to play on the speakers (WAV/FLAC, ideally 48 kHz mono); create the folder if you play sounds |
 
 - **Recordings on the data drive:** in `rig.yaml`, set `paths: sessions_dir: D:\MAVRIC_sessions`.
@@ -288,7 +288,7 @@ on this PC.
   ```
   then `conda deactivate` and `conda activate mavric`.
 
-ROIs are drawn later in the acquire window (*Place ROIs* → *Draw / reset* → *Save ROIs to rig*).
+ROIs are drawn later in the acquire window (*ROIs and LED*: each place's button, *LED box*, then *Save ROIs to rig*).
 
 ---
 
@@ -333,7 +333,7 @@ Connect one device at a time and check it before recording. The full bring-up or
 | MOTU M4 | `mavric audio devices`, then `mavric audio test --tones` | the M4 marked `<- configured`; tones on each speaker, levels and sync pulses on the inputs |
 | Speakers / headphones | `mavric audio play test_tone --speaker spk1 --gain-db -20` | a short 1 kHz beep; then `mavric audio sounds` lists your stimuli |
 | I/O Arduino | `mavric outputs test io` | `MAVRIC_IO 1.0 …` |
-| Intan RHX (TCP) | acquire → *Outputs…* → select the Intan device → *Test* | RHX answers |
+| Intan RHX (TCP) | acquire → *Settings → Outputs…* → select the Intan device → *Test* | RHX answers |
 | MATLAB | in MATLAB: `matlab.engine.shareEngine('mavric')`, then *Test* on the MATLAB device | MATLAB answers |
 | Whole rig | `mavric acquire` | live view, live RFID, sync LED box blinking every 2–6 s, audio meters |
 

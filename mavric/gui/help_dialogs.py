@@ -16,10 +16,10 @@ BASICS = {
   <li>Pick each camera and press <i>Connect camera</i>.</li>
   <li><i>Connect audio</i> (optional): microphones, the sync pulse input and the speakers.</li>
   </ul></li>
-<li><b>ROIs</b> (once per setup, on the first camera).
+<li><b>ROIs and LED</b> (once per setup, on the first camera).
   <ul>
-  <li><i>Draw / reset</i> one ROI per antenna and fit its corners to the place.</li>
-  <li>Draw the <i>sync LED box</i> over the sync LED.</li>
+  <li>Press each place's button (<i>1 PlaceA</i>, …) to draw its ROI, and drag the corners onto the place.</li>
+  <li><i>LED box</i>: the box over the sync LED.</li>
   <li><i>Save ROIs to rig</i>.</li>
   </ul></li>
 <li><b>Check.</b>
@@ -33,19 +33,27 @@ BASICS = {
   <li>Everything goes to <code>sessions/&lt;date&gt;_&lt;name&gt;</code>.</li>
   <li>Video is kept raw (lossless chunks); compress it afterwards.</li>
   </ul></li>
-<li><b>Optional.</b>
+<li><b>Settings menu.</b>
   <ul>
   <li><i>Video settings…</i>: exposure, gain, image size, recording format.</li>
   <li><i>Calibrate cameras…</i>: each camera's lens, then where all cameras are, from views of the ChArUco board
   (<i>Sticker sheet…</i> turns a plain checkerboard into one); then each place's height, so every camera shows the
   places; then where the microphones and speakers are, checked by sound.</li>
+  <li><i>Outputs…</i>: TTL, Intan, MATLAB, sounds, camera clips. Outputs only fire while <i>armed</i> (Outputs
+  panel).</li>
+  </ul></li>
+<li><b>Also.</b>
+  <ul>
   <li><i>Position</i>: whether each camera is still where its ROIs were drawn (every 10 s); <i>Alignment
   overlay</i> shows its reference view as outlines on the live picture, to put a bumped camera back.</li>
-  <li><i>Outputs…</i>: TTL, Intan, MATLAB, sounds, camera clips. Outputs only fire while <i>armed</i>.</li>
   <li><i>Soundboard</i> (audio connected, speakers configured): play any sound from <code>sounds/</code> by hand.</li>
   <li><i>View → All cameras</i>: monitor every camera at once, with the places each one sees.</li>
   </ul></li>
 </ol>
+<p><b>Panels.</b> The arrow (or the icon) collapses a panel to its title bar. Drag a title to move the panel
+elsewhere, or onto another panel to stack them as tabs; double-click it to float the panel in its own window. The
+<i>Panels</i> menu shows hidden panels again and has the default arrangement. The arrangement is saved for this rig
+when the window closes.</p>
 <p><b>Afterwards</b> (command line):</p>
 <ul>
 <li><code>mavric review &lt;session&gt;</code>: label and curate.</li>
@@ -227,17 +235,39 @@ class AboutDialog(QtWidgets.QDialog):
         dlg.exec()
 
 
-def help_about_row(parent, context: str) -> QtWidgets.QHBoxLayout:
-    """'Help' and 'About' buttons for a window's side panel."""
-    row = QtWidgets.QHBoxLayout()
-    h = QtWidgets.QPushButton("Help")
-    h.setToolTip("The basics of this window, and the full manual (README)")
-    h.clicked.connect(lambda: HelpDialog(parent, context).exec())
-    a = QtWidgets.QPushButton("About")
-    a.setToolTip("Version, commit, author and licence")
-    a.clicked.connect(lambda: AboutDialog(parent).exec())
-    for b in (h, a):
-        b.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        row.addWidget(b)
-    row.addStretch(1)
-    return row
+class _HelpActions(QtCore.QObject):
+    """What the Help menu opens. A child of the window, so the menu holds no Python reference to the window (lambdas
+    would, and the window would then be left to the garbage collector)."""
+
+    def __init__(self, window: QtWidgets.QMainWindow, context: str):
+        super().__init__(window)
+        self.context = context
+
+    def basics(self) -> None:
+        HelpDialog(self.parent(), self.context).exec()
+
+    def manual(self) -> None:
+        ReadmeViewer(self.parent()).exec()
+
+    def about(self) -> None:
+        AboutDialog(self.parent()).exec()
+
+
+def add_help_menu(window: QtWidgets.QMainWindow, context: str) -> QtWidgets.QMenu:
+    """The Help menu: this window's basics, the manual (README) and About."""
+    m = window.menuBar().addMenu("Help")
+    m.setToolTipsVisible(True)
+    h = _HelpActions(window, context)
+    for text, fn, tip in (("The basics", h.basics, "The basics of this window, and the full manual (README)"),
+                          ("Manual (README)", h.manual,
+                           "The user manual with screenshots, installation and all commands"),
+                          (None, None, None),
+                          (f"About {about.NAME}", h.about, "Version, commit, author and licence")):
+        if text is None:
+            m.addSeparator()
+            continue
+        a = m.addAction(text)
+        a.triggered.connect(fn)
+        a.setToolTip(tip)
+        a.setStatusTip(tip)
+    return m

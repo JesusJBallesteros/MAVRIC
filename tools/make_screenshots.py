@@ -43,10 +43,13 @@ def annotate(window: QtWidgets.QWidget, items: list[tuple[QtWidgets.QWidget, int
     font.setBold(True)
     p.setFont(font)
     for w, n in items:
+        part = None
+        if isinstance(w, tuple):  # (widget, a rectangle within it)
+            w, part = w
         if w is None or not w.isVisible():
             continue
-        tl = w.mapTo(window, QtCore.QPoint(0, 0))
-        r = QtCore.QRect(tl, w.size()).adjusted(1, 1, -1, -1)
+        tl = w.mapTo(window, (part or w.rect()).topLeft())
+        r = QtCore.QRect(tl, (part or w.rect()).size()).adjusted(1, 1, -1, -1)
         p.setPen(QtGui.QPen(ACCENT, 2.5))
         p.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(r, 6, 6)
@@ -75,10 +78,6 @@ def neutral_paths(widget, tmp: Path) -> None:
 
 def group(window, title: str):
     return next((g for g in window.findChildren(QtWidgets.QGroupBox) if g.title() == title), None)
-
-
-def button(window, text: str):
-    return next((b for b in window.findChildren(QtWidgets.QAbstractButton) if b.text() == text), None)
 
 
 def main() -> None:
@@ -125,7 +124,7 @@ def main() -> None:
     (tmp / "sessions").mkdir()
     ctl = simulation_controller(rig, seed=5)
     win = AcquireWindow(ctl, sim=True)
-    win.resize(1500, 1600)
+    win.resize(1600, 1040)
     win.show()
     ctl.connect_rfid(ctl._sim_source)
     for c in rig["cameras"]:
@@ -138,11 +137,13 @@ def main() -> None:
     win.sb_speaker.setCurrentIndex(min(2, win.sb_speaker.count() - 1))
     win.sb_gain.setValue(-6.0)
     pump(app, 8)
-    annotate(win, [(group(win, "Devices"), 1), (group(win, "Audio inputs"), 2), (group(win, "Soundboard"), 3),
-                   (group(win, "Place ROIs (one per antenna) and sync LED"), 4), (group(win, "Live RFID"), 5),
-                   (group(win, "Recording"), 6),
-                   (group(win, "Outputs and camera clips (TTL, Intan, MATLAB, sounds, messages, clips)"), 7),
-                   (win.video, 8), (win.spec, 9), (button(win, "Help"), 10)],
+    mb = win.menuBar()
+    menus = mb.actions()
+    p = win.panels
+    annotate(win, [(p["devices"], 1), (p["audio"], 2), (p["sound"], 3), (p["rois"], 4), (p["rfid"], 5),
+                   (p["recording"], 6), (p["outputs"], 7), (win.video, 8), (win.spec, 9),
+                   ((mb, mb.actionGeometry(menus[0]).united(mb.actionGeometry(menus[-1])).adjusted(0, 0, 24, 0)), 10),
+                   (p["status"], 11)],
              OUT / "acquire.png", scale=0.8)
 
     dlg = OutputsDialog(win, ctl)
@@ -232,7 +233,7 @@ def main() -> None:
         win._update_positions(background=False)
     win.b_align.setChecked(True)
     pump(app, 2.0)
-    annotate(win, [(win.video, 1), (group(win, "Devices"), 2)], OUT / "acquire_alignment.png", scale=0.6)
+    annotate(win, [(win.video, 1), (win.panels["devices"], 2)], OUT / "acquire_alignment.png", scale=0.6)
     win.close()
     ctl.shutdown()
 

@@ -115,3 +115,4 @@ paths:
   outputs_file: config/outputs.yaml   # event-driven outputs (acquire GUI: Outputs...)
   sound_types_file: config/sound_types.yaml  # sound event types (review GUI: Sound events -> Types...)
   calibration_file: config/calibration.yaml  # camera calibration (acquire GUI: Calibrate cameras...)
+  gui_layout_file: config/gui_layout.ini     # the acquire window's panels as last arranged (saved on closing)

@@ -23,8 +23,8 @@ with two microphones and four speakers.
 | Timeline | Audio on the video's clock and Audacity label tracks, for Audacity, Ethograph and BORIS | `mavric timeline <session>` |
 | Compress | H.264 copies of the raw video, every frame kept, for sharing and DeepLabCut | `mavric compress <session>` |
 | BORIS stopgap | Use BORIS labels as ground truth | `mavric import-boris <session> <export.tsv>` |
-| Triggered clips | Record video only while RFID detects a tag (any camera, incl. ones not used for ID) | acquire → **Outputs…** → Camera clips |
-| Outputs | Drive TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs, network messages or sounds from RFID events | acquire → **Outputs…**, `mavric outputs` |
+| Triggered clips | Record video only while RFID detects a tag (any camera, incl. ones not used for ID) | acquire → **Settings → Outputs…** → Camera clips |
+| Outputs | Drive TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs, network messages or sounds from RFID events | acquire → **Settings → Outputs…**, `mavric outputs` |
 | Sounds | A stimulus library played by hand (soundboard) or by rules, logged to the sample | `mavric audio sounds`, `mavric audio play` |
 
 ## Install
@@ -90,7 +90,7 @@ an ArUco marker.
     lens distortion does not matter, and a marker that misses by more than half its side is flagged.
   - **What happens to it:** flagged markers and their corners are left out, and the rest of the board is still used.
 
-**Lens calibration** (Acquire → *Calibrate cameras…*):
+**Lens calibration** (Acquire → *Settings → Calibrate cameras…*):
 - **Auto-capture:** a view is captured when the corners have moved less than 0.8 px for 5 frames in a row, and the
   board's position, size, tilt or roll differ enough from every captured view.
   - Views with a misplaced sticker or fewer than 12 corners are never captured.
@@ -463,8 +463,8 @@ arduino-cli upload --fqbn arduino:avr:mega -p COM3 firmware/MultiRFID_Reader_ID2
 
 ### 1. Acquire: `mavric acquire`
 1. Connect the RFID reader and the camera. The live view runs before you record anything.
-2. Draw **one ROI per antenna**. Choose *Draw / reset*, drag the corners, and click an edge to add a corner. Then draw the
-   **sync LED box**.
+2. Draw **one ROI per antenna** in the *ROIs and LED* panel: each place's button (*1 PlaceA*, …) draws its ROI. Drag
+   the corners onto the place, and click an edge to add a corner. Then *LED box* draws the **sync LED box**.
 3. Choose *Save ROIs to rig*, which writes `config/rois.json`.
 4. Check the live view: an ROI lights up in the subject's colour while its antenna reads a tag, and the live table
    and event list show arrivals and departures. The LED box brightness must jump with each flash.
@@ -473,7 +473,7 @@ arduino-cli upload --fqbn arduino:avr:mega -p COM3 firmware/MultiRFID_Reader_ID2
 
 ### Video settings, raw recording and compression
 
-**Video settings… (acquire window, next to View).** Per camera:
+**Video settings… (acquire window, Settings menu).** Per camera:
 - frame rate, exposure, gain, brightness (black level), gamma, pixel format, white balance (colour cameras);
 - region of interest (width, height, offsets; a smaller image allows a higher frame rate and less data);
 - continuous or clips-only recording.
@@ -568,7 +568,7 @@ In the acquire window:
 - **Beyond that:** add a PCIe USB 3 card with one controller per port, and lower the frame rate or use 2×2
   decimation.
 
-**2. Add rules: acquire → Outputs… → Camera clips.**
+**2. Add rules: acquire → Settings → Outputs… → Camera clips.**
 - **Each rule sets:** a camera, antennas, subjects, and the seconds before and after the presence.
 - **Saving:** the rules go to `config/outputs.yaml` (`clips:`) and apply from the next recording.
 
@@ -607,7 +607,7 @@ the session timeline (camera clock fit) and links it to the RFID bout that trigg
 network messages and sounds on the speakers. Wiring is in [wiring.md §6](wiring.md#6-io-arduino-event-driven-outputs).
 
 **Setup**
-1. In the acquire window, open **Outputs…**.
+1. In the acquire window, open **Settings → Outputs…**.
 2. **Devices tab:** add the devices.
 3. **Rules tab:** add rules. Each rule sets:
    - which antennas (or any)
@@ -719,7 +719,7 @@ mavric audio play test_tone --speaker spk1 --gain-db -10
 - **↻ sounds** reloads the library after adding files
 - each play is logged in `actions.csv` (event `manual`) and `audio_playback.csv`
 
-**From rules.** Add a device of type *Audio speakers* in **Outputs…** and give rules a `play`, `stop` or `hold_play`
+**From rules.** Add a device of type *Audio speakers* in **Settings → Outputs…** and give rules a `play`, `stop` or `hold_play`
 action. The sound and speaker fields list the library and `rig.yaml` speakers. Example: "S03 arrives at PlaceB → play
 `call_A` on spk2 once, refractory 30 s".
 

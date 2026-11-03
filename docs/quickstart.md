@@ -134,13 +134,13 @@ cameras:
 | `backend` | `flir`: FLIR / Point Grey (Spinnaker). `basler`: Basler (pylon). `opencv`: webcams. `file`: replay a video. `synthetic`: a test image. |
 | `device` | Serial number, from `mavric ports` or SpinView. `""` takes the first camera found, which is fine for one camera only. |
 | `fps`, `exposure_us`, `gain_db`, `pixel_format` | Starting values. *Video settings…* in Acquire changes them and saves `video.yaml`. |
-| `record` | `continuous`: the whole session. `triggered`: only clips from clip rules (*Outputs… → Camera clips*). |
+| `record` | `continuous`: the whole session. `triggered`: only clips from clip rules (*Settings → Outputs… → Camera clips*). |
 | `chunk_frame_counter`, `line_status`, `link_limit_mb_s`, `white_balance` | FLIR details; see [reference.md](reference.md#flir--point-grey-cameras-chameleon3-blackfly-s). |
 
 **`video`: recording format.** `record_format: raw` (default) keeps every frame lossless in about 2 GB files, to be
 compressed afterwards. `h264` compresses while recording. *Video settings…* sets the same values.
 
-**`triggers`: camera clip rules.** Easier in Acquire (*Outputs… → Camera clips*); see the [README](../README.md#2-sounds-outputs-and-camera-clips).
+**`triggers`: camera clip rules.** Easier in Acquire (*Settings → Outputs… → Camera clips*); see the [README](../README.md#2-sounds-outputs-and-camera-clips).
 
 **`audio`: the audio interface (optional)**
 
@@ -225,10 +225,10 @@ You rarely edit these by hand:
 | File | Written by | Holds |
 |---|---|---|
 | `rois.json` | Acquire → *Save ROIs to rig*; *Calibrate cameras…* → *Save places* | one polygon per place (on the first camera's image) and the sync LED box; once placed in 3D, their heights and outlines in mm |
-| `video.yaml` | Acquire → *Video settings… → Save* | camera settings and the recording format; they override `rig.yaml` |
-| `outputs.yaml` | Acquire → *Outputs… → Save & restart outputs* | output devices, rules, camera clip rules |
+| `video.yaml` | Acquire → *Settings → Video settings… → Save* | camera settings and the recording format; they override `rig.yaml` |
+| `outputs.yaml` | Acquire → *Settings → Outputs… → Save & restart outputs* | output devices, rules, camera clip rules |
 | `sound_types.yaml` | Review → Sound events → *Types…* | the list of sound event types (F1–F9) |
-| `calibration.yaml` | Acquire → *Calibrate cameras…* → *Save* / *Save positions* / *Save devices* | each camera's lens (focal length, image centre, distortion, error, date) and position in mm, and each microphone's and speaker's position and aim; `calibration/` keeps the board corners of the views used |
+| `calibration.yaml` | Acquire → *Settings → Calibrate cameras…* → *Save* / *Save positions* / *Save devices* | each camera's lens (focal length, image centre, distortion, error, date) and position in mm, and each microphone's and speaker's position and aim; `calibration/` keeps the board corners of the views used |
 
 Every session keeps a copy of the tag map, the ROIs and the camera calibration it used, so later edits don't change
 old sessions.
@@ -335,7 +335,7 @@ Outputs act when RFID sees a subject: a TTL pulse, a recording start in Intan, M
 message or a sound.
 
 1. **I/O Arduino:** flash `firmware/MAVRIC_IO` and wire its pins ([wiring.md §6](wiring.md#6-io-arduino-event-driven-outputs)).
-2. **In Acquire → Outputs… → Devices,** add each device with its settings, then *Save & restart outputs*.
+2. **In Acquire → Settings → Outputs… → Devices,** add each device with its settings, then *Save & restart outputs*.
 3. **Test** each device: the *Test* button, or
    ```bash
    mavric outputs test io
@@ -362,8 +362,8 @@ Every device has a simulated twin, for learning and testing:
 
 **In `mavric acquire`**
 1. **Connect:** RFID port → *Connect RFID*; each camera → *Connect camera*; *Connect audio*.
-2. **ROIs** (once per setup, on the first camera): *Draw / reset* one polygon per place and fit its corners, then
-   *Draw / reset sync LED box* over the LED, then *Save ROIs to rig*.
+2. **ROIs and LED** (once per setup, on the first camera): each place's button (*1 PlaceA*, …) draws its polygon;
+   fit its corners to the place. Then *LED box* over the LED, then *Save ROIs to rig*.
 3. **Check:**
    - a place ROI takes the subject's colour while its reader reads the tag;
    - the sync LED box brightness jumps every 2–6 s;

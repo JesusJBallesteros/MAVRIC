@@ -62,6 +62,51 @@ def test_acquire_and_dialogs_have_tips(app, tmp_path):
     win.close()
 
 
+def test_acquire_panels_menus_and_saved_arrangement(app, tmp_path):
+    from pathlib import Path
+
+    from mavric.acquire import simulation_controller
+    from mavric.config import load_rig
+    from mavric.gui.acquire_window import PANELS, AcquireWindow
+    from mavric.gui.common import HANDLE_RADIUS
+
+    rig = load_rig()
+    rig["paths"] = {**rig["paths"], "sessions_dir": str(tmp_path), "outputs_file": str(tmp_path / "o.yaml")}
+    layout = Path(rig["paths"]["gui_layout_file"])
+    assert layout.parent.name == "config" and not layout.exists()
+    ctl = simulation_controller(rig, seed=1)
+    win = AcquireWindow(ctl, sim=True)
+    menus = {a.text(): [b.text() for b in a.menu().actions() if b.text()] for a in win.menuBar().actions()}
+    assert menus["Settings"] == ["Video settings…", "Calibrate cameras…", "Outputs…"]
+    assert menus["Help"] == ["The basics", "Manual (README)", "About MAVRIC"]
+    assert [PANELS[n][0] for n in win.panels] == menus["Panels"][:len(PANELS)]
+    assert not win.panels["audio"].toggleViewAction().isEnabled()  # until audio connects
+    win.show()
+    app.processEvents()
+    assert win.panels["rois"].windowTitle() == "ROIs and LED" and win.cb_edit.text() == "Edit ROIs"
+    rois = win.panels["rois"]
+    full = rois.height()
+    rois.set_collapsed(True)
+    app.processEvents()
+    assert rois.height() < 40 < full and not win.cb_edit.isVisible()
+    assert rois.width() == win.panels["devices"].width()  # a collapsed panel keeps the column's width
+    win.close()  # saves the arrangement for this rig
+    assert layout.is_file()
+    win = AcquireWindow(simulation_controller(rig, seed=1), sim=True)
+    assert win.panels["rois"].collapsed and not win.panels["devices"].collapsed
+    win.arrange_panels()
+    assert not any(p.collapsed for p in win.panels.values())
+    win._new_roi(1)
+    win._new_roi(None)
+    poly = win.video.rois[win.antennas[1]].item
+    a, b = (poly.handles[i]["item"].pos() for i in (0, 1))
+    poly.segmentClicked(poly.segments[0], pos=(a + b) / 2)  # a corner added on an edge
+    assert len(poly.handles) == 5
+    for g in win.video.rois.values():  # corners easy to grab
+        assert all(h["item"].radius == HANDLE_RADIUS for h in g.item.handles)
+    win.close()
+
+
 def test_review_has_tips_and_help(app, tmp_path):
     from mavric.gui.help_dialogs import AboutDialog, HelpDialog, ReadmeViewer
     from mavric.gui.review_window import ReviewWindow

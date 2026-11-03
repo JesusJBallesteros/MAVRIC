@@ -144,6 +144,7 @@ DEFAULT_RIG = {
         "sound_types_file": "config/sound_types.yaml",  # sound event types (review GUI)
         "video_settings_file": "config/video.yaml",  # camera/recording settings from the acquire GUI
         "calibration_file": "config/calibration.yaml",  # camera calibration (acquire GUI: Calibrate cameras...)
+        "gui_layout_file": "config/gui_layout.ini",  # where the acquire window's panels are, saved on closing
     },
 }
 

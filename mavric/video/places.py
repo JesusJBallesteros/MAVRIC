@@ -114,11 +114,11 @@ def problem(rs: RoiSet, cams: dict[str, CameraModel], world: dict, roi_camera: s
     if not roi_camera:
         return "no camera in rig.yaml"
     if roi_camera not in cams:
-        return (f"{roi_camera} (the ROI camera) has no lens calibration and position yet: Calibrate cameras…, tabs 1 "
-                "and 2")
+        return (f"{roi_camera} (the ROI camera) has no lens calibration and position yet: Settings → Calibrate "
+                "cameras…, tabs 1 and 2")
     if world.get("frame") != "floor":
-        return ("the camera positions have no floor origin, so heights have no meaning: set it in Calibrate cameras…, "
-                "tab 2 (Board on the floor) and compute the positions again")
+        return ("the camera positions have no floor origin, so heights have no meaning: set it in Settings → "
+                "Calibrate cameras…, tab 2 (Board on the floor) and compute the positions again")
     if rs.image_size and tuple(rs.image_size) != tuple(cams[roi_camera].size):
         return (f"the ROIs were drawn on a {rs.image_size[0]}×{rs.image_size[1]} image, {roi_camera} is calibrated "
                 f"at {cams[roi_camera].size[0]}×{cams[roi_camera].size[1]}")

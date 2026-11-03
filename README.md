@@ -103,18 +103,24 @@ mavric acquire
 
 | | Control | What to do |
 |---|---|---|
-| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Video settings…* sets exposure, gain, size and recording format. *Calibrate cameras…* calibrates each camera's lens ([below](#calibrate-the-cameras)). *Position* says whether each camera is still where it was; *Alignment overlay* helps put it back ([below](#did-a-camera-move)). |
+| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Calibration* lists the cameras calibrated ([below](#calibrate-the-cameras)). *Position* says whether each camera is still where it was; *Alignment overlay* helps put it back ([below](#did-a-camera-move)). |
 | 2 | **Audio inputs** | Level per input, with a red CLIP warning, and a counter of the sync pulses received. |
 | 3 | **Soundboard** | With speakers configured: play any sound from the library on any speaker, by hand ([§2](#2-sounds-outputs-and-camera-clips)). |
-| 4 | **Place ROIs** | Once per setup, on the first camera: *Draw / reset* one ROI per antenna, then the sync LED box, then *Save ROIs to rig*. |
+| 4 | **ROIs and LED** | Once per setup, on the first camera: each place's button (*1 PlaceA*, …) draws its ROI, whose corners you drag onto the place; *LED box* goes over the sync LED; then *Save ROIs to rig*. |
 | 5 | **Live RFID** | The tag at each place and for how long; arrivals and departures below. |
 | 6 | **Recording** | Name and notes, then *Start recording*. Everything goes to `sessions/<date>_<name>/`. |
-| 7 | **Outputs** | *Outputs…* holds devices, rules and camera clips. Nothing fires until *Arm outputs*. |
+| 7 | **Outputs** | Nothing fires until *Arm outputs*. Devices, rules and camera clips are set up in *Settings → Outputs…*. |
 | 8 | **Live view** | A place ROI takes the subject's colour while its antenna reads the tag. |
 | 9 | **Spectrograms** | The last 10 s of each microphone. |
-| 10 | **Help / About** | The basics, this manual, the version and the licence. |
+| 10 | **Menus** | **Settings:** *Video settings…* (exposure, gain, size, recording format), *Calibrate cameras…* ([below](#calibrate-the-cameras)), *Outputs…*. **Panels:** show a hidden panel, open or collapse them all, the default arrangement. **Help:** the basics, this manual, the version and the licence. |
+| 11 | **Status** | RFID line rate, the frame trigger, each camera's frame rate and drops, recording, clips, audio. |
 
 Every control explains itself when you hover over it.
+
+**Arrange the panels.** The arrow (or the icon) collapses a panel to its title bar. Drag a title to move the panel
+to another side, or onto another panel to stack them as tabs; double-click it to float the panel in its own window.
+The arrangement is saved for the rig (`config/gui_layout.ini`) when the window closes; *Panels → Default
+arrangement* puts everything back.
 
 **Before a real recording, check that:**
 - each ROI lights up when you hold a tag at its antenna;
@@ -157,7 +163,7 @@ be identified even when part of the board is hidden.
    39 mm). To turn a plain checkerboard into one, print stickers with `mavric calibrate sheet` (or *Sticker sheet…*
    in the dialog): a PDF at exact size with a map of which sticker goes into which white square. Measure the
    squares with calipers and enter the size.
-2. **Calibrate cameras…** in the acquire window, one camera at a time. Hold the board still in front of the camera,
+2. **Settings → Calibrate cameras…** in the acquire window, one camera at a time. Hold the board still in front of the camera,
    in a different place and at a different angle each time. A view is captured when the board has been still for a
    moment in a new position.
    - **Fill the image:** the cells turn green as corners reach them. Use near and far, and tilt the board 20–40°.
@@ -250,7 +256,7 @@ mavric audio play test_tone --speaker spk1 --gain-db -10
 **Playing sounds**
 - **By hand:** the **Soundboard** in Acquire (sound, speaker or *all*, gain, loop). *■ Stop all sounds* fades
   everything out; disarming the outputs does too.
-- **From rules:** add an *Audio speakers* device in **Outputs…**, then rules with `play`, `stop` or `hold_play`
+- **From rules:** add an *Audio speakers* device in **Settings → Outputs…**, then rules with `play`, `stop` or `hold_play`
   (loop while the subject is present).
 - **Level safety:** the mix is clipped at `audio.max_level_dbfs` (−6 dBFS by default). MAVRIC says *LIMITED* when a
   sound plus its gain would exceed it.
@@ -434,10 +440,10 @@ stay on your computer.
 | `rig.yaml` | RFID port, antennas → places, cameras, audio inputs and speakers, sync, paths | text editor |
 | `tags.csv` | tag ID → subject name and colour | text editor |
 | `rois.json` | place ROIs and the sync LED box, with their heights once placed in 3D | Acquire: *Save ROIs to rig*; *Calibrate cameras… → Save places* |
-| `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Video settings…* |
-| `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Outputs…* |
+| `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Settings → Video settings…* |
+| `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Settings → Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |
-| `calibration.yaml` | each camera's lens and position, the microphones and speakers (`calibration/` holds the views used and each camera's reference view) | Acquire: *Calibrate cameras…* |
+| `calibration.yaml` | each camera's lens and position, the microphones and speakers (`calibration/` holds the views used and each camera's reference view) | Acquire: *Settings → Calibrate cameras…* |
 
 Every setting is explained in [docs/quickstart.md §3](docs/quickstart.md#3-configuration).
 
