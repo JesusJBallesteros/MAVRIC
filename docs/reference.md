@@ -419,8 +419,10 @@ The full pin-map (ID-20LA module pins, MEGA pin usage, Chameleon3 GPIO connector
 **Sync pins:** D52, D50 and D48 give the same pulse ([docs/wiring.md §3](wiring.md)).
 - **D52, sync LED:** D52 → 330 Ω → red LED → GND. Place it where every camera sees it; a small diffuser helps.
 - **D50, audio:** a 10 kΩ / 1.8 kΩ divider into MOTU M4 In 3 (TRS: tip = signal, ring = GND).
-- **D48, spare:** for Intan DIGITAL IN 2, or a camera input line for frame-exact sync (Basler: Line 1 opto-in,
-  then set `line_status: true` in `rig.yaml`, and the camera records the line state with every frame).
+- **D48:** not connected.
+
+**Frame trigger:** D46 sends one pulse per frame to every camera's trigger input, for 3D
+([docs/wiring.md §5.3](wiring.md#53-frame-trigger-from-d46-pins-9--7)).
 
 **Firmware:** `firmware/MultiRFID_Reader_ID20LA_sync/`. It is the MultiRFID ID-20LA sketch plus:
 - an LED pulse of 80 ms at random 2–6 s intervals, each logged as `<micros>,SYNC,0`;

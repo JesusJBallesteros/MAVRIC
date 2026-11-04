@@ -4,13 +4,19 @@ The technical hardware guide, written for the reference rig: pigeons on four RFI
 pins, cables and checks. Software setup and the device checks are in the [quick-use guide](quickstart.md#4-setting-up-the-devices);
 drivers and firmware flashing in [installation.md](installation.md).
 
+![The reference rig in its room](images/rig_layout.svg)
+
+*The reference rig: a 2 × 2 × 2 m cage with the PC cart beside it. Both cameras film the wire-mesh wall that holds
+the four perches. A microphone sits at each end of the row of perches, so a call from each perch reaches the two
+microphones with its own time difference; a speaker hangs in each top corner.*
+
 ![MAVRIC wiring overview](wiring_diagram.svg)
 
-*The diagram shows the readers, the MEGA, the red sync LED, cam0 (ROIs, continuous) and cam1 (clips only), and the audio (MOTU M4, two NT5, sync divider, four speakers). The I/O Arduino and Intan are optional.*
+*The wiring: the readers, the MEGA, the red sync LED, both cameras on the D46 frame trigger, and the audio (MOTU M4,
+two NT5, sync divider, four speakers). The I/O Arduino is optional.*
 
 **What this covers:** what plugs in where: the PC, the Arduino MEGA, the four ID-20LA perch readers, the sync LED,
-two Point Grey Chameleon3 cameras (cam0 with the ROIs, cam1 for triggered clips), and the audio (MOTU M4, two Rode NT5,
-four speakers; §7).
+two FLIR USB3 cameras on the frame trigger, and the audio (MOTU M4, two Rode NT5, four speakers; §7).
 
 **Required vs optional:** everything marked **required** is needed for a working rig. **Optional** connections only
 add redundancy, or prepare later upgrades.
@@ -25,31 +31,29 @@ add redundancy, or prepare later upgrades.
 | From | To | Cable | Purpose | Status |
 |---|---|---|---|---|
 | PC USB 2/3 | Arduino MEGA USB-B | USB A–B | MEGA power + serial data (500000 baud) | **required** |
-| PC USB 3.0 port (PCIe 2.0 controller) | Chameleon3 USB 3.0 Micro-B | USB 3.0 Micro-B, ≤ 5 m (≤ 3 m preferred), screw-locking | camera power + video | **required** |
+| PC USB 3.0 port | each camera's USB 3.0 port | USB 3.0, ≤ 5 m, screw-locking | camera power + video | **required** |
 | 5 V regulated supply | the 4 ID-20LA readers (pins 11 and 2) | 2-wire per reader | reader power | **required** (bench: MEGA 5 V is acceptable) |
 | ID-20LA pin 9 (D0) | MEGA D19 / D17 / D15 / D10 | signal + GND pair | tag ID data, 9600 baud | **required** |
 | ID-20LA pin 6 (Tag in Range) | MEGA D2 / D3 / D4 / D5 | signal + GND pair | tag present | **required** |
 | MEGA D52 | 330 Ω → red LED → GND; no resistor if the LED has one built in (§4.1) | 2-wire | sync LED, visible to the cameras | **required** |
-| MEGA D48 + GND | Chameleon3 GPIO pin 9 (OPTO_IN) + pin 7 (OPTO_GND) | 2-wire | sync pulse into the camera | optional |
-| Chameleon3 GPIO pin 8 (OPTO_OUT) | MEGA D21 (4.7 kΩ pull-up to 5 V) | 2-wire | exposure-active pulses to the Arduino | future (needs a firmware change) |
-| PC USB | **I/O Arduino** (`firmware/MAVRIC_IO`) | USB | event-driven TTL outputs (§6) | optional |
-| I/O Arduino pin + GND | Intan DIGITAL IN 1 + I/O GND | BNC coax | event TTL / triggered recording | optional |
-| MEGA D48 + GND | Intan DIGITAL IN 2 + I/O GND | BNC coax | sync pulses into the ephys data | optional (recommended with Intan) |
+| MEGA D46 + GND | each camera's GPIO pin 9 (OPTO_IN) + pin 7 (OPTO_GND) | 2-wire per camera | frame trigger: the cameras expose together (§5.3) | for 3D |
 | PC USB | MOTU M4 USB-C | USB-C | audio interface (§7) | optional (audio) |
 | Rode NT5 ×2 | M4 In 1, In 2 (48 V on) | XLR | microphones micA, micB | optional (audio) |
 | MEGA D50 + GND, through a 10 kΩ / 1.8 kΩ divider | M4 In 3 | ¼" TRS: tip = signal, ring = GND | sync pulse into the audio | **required with audio** |
 | M4 Out 1–4 | 4 powered speakers | balanced TRS | stimulus playback | optional (audio) |
+| PC USB | **I/O Arduino** (`firmware/MAVRIC_IO`) | USB | event-driven TTL outputs (§6) | optional |
 
-**Sync pins:** D52, D50 and D48 give the same pulse at the same moment (firmware `SYNC_PINS`), each to its own load:
+**Sync pins:** D52, D50 and D48 give the same pulse at the same moment (firmware `SYNC_PINS`):
 - **D52:** the sync LED only.
 - **D50:** the audio divider into M4 In 3.
-- **D48:** spare, with nothing connected yet. It is ready for the camera opto input or Intan DIGITAL IN 2, which
-  can share it.
+- **D48:** not connected.
 
-**Grounds:** every ground is common, except the camera's isolated OPTO_GND.
+**Frame trigger:** D46 is a separate output: one pulse per video frame, to every camera (§5.3).
+
+**Grounds:** every ground is common.
 - **Joined together:** the MEGA GND, the reader supply GND and every reader's pin 1.
-- **Camera:** it shares the PC's ground through USB. OPTO_GND (pin 7) is isolated and is only joined to the MEGA
-  GND if you use the optional opto connection.
+- **Cameras:** they share the PC's ground through USB. Their trigger input has its own ground, OPTO_GND (pin 7),
+  which is joined to the MEGA GND together with the D46 wire.
 
 ---
 
@@ -68,12 +72,12 @@ side and pins 6–10 on the other; pin 11 sits alone at the top. This follows th
 | 3 | ANT | — leave open | for the ID-3LA only; ID-20LA has the antenna inside |
 | 4 | ANT | — leave open | as pin 3 |
 | 5 | CP (card present) | — leave open | no function in ASCII mode |
-| 6 | **Tag in Range** | **MEGA D2–D5** | goes to VDD while a tag is in range, otherwise 0 V; internal 3K3; max 5 mA |
+| 6 | **Tag in Range** | **MEGA D2–D5** | high while a tag is in range, otherwise 0 V |
 | 7 | Format selector | **GND** | GND selects **ASCII** (format is read at power-up) |
 | 8 | D1 | — leave open | CMOS data with RS232 polarity (not used) |
 | 9 | **D0** | **MEGA RX pin** | TTL ASCII data, 9600 8N1, for a UART RX pin |
-| 10 | Read (beeper/LED) | optional: 1.5 kΩ → LED → GND | 3.1 kHz square wave while reading; max 10 mA |
-| 11 | +2.8 … +5.0 V | **+5 V supply** | about 45 mA per ID-20LA; low-noise supply |
+| 10 | Read (beeper/LED) | optional: 1.5 kΩ → LED → GND | blinks while reading |
+| 11 | +2.8 … +5.0 V | **+5 V supply** | low-noise supply (§2.3) |
 
 ### 2.2 Reader-to-MEGA map
 
@@ -93,15 +97,13 @@ After wiring, confirm which physical perch each reader serves:
 
 ### 2.3 Power for the readers
 
-**Bench:** the four readers may run from the MEGA's **5V** pin (4 × 45 mA ≈ 180 mA from USB).
+**Bench:** the four readers may run from the MEGA's **5V** pin.
 
-**In the cage (recommended):** use a separate **linear** 5 V supply.
-- **Supply:** a 7805-class regulator or a lab supply, with ripple below **3 mV peak-to-peak**.
-- **Why:** the datasheet warns that switching supplies near multiples of 125 kHz cut the read range.
+**In the cage (recommended):** use a separate **linear**, low-noise 5 V supply (a 7805-class regulator or a lab
+supply). A switching supply can shorten the read range.
 - **Wiring:** join its GND to the MEGA GND.
 - **Do not** connect this supply's +5 V to the MEGA's 5V pin; the MEGA stays powered from USB.
-
-**Decoupling:** at each module, fit **1000 µF + 100 nF** between pins 11 and 1, as close to the pins as possible.
+- **At each module:** a decoupling capacitor across pins 11 and 1, as in the datasheet (§12).
 
 ### 2.4 Mounting under the perch
 
@@ -148,27 +150,25 @@ shows the reader's state. Work through these in order:
 
 This applies to the firmware `firmware/MultiRFID_Reader_ID20LA_sync`.
 
-> **Changed 2026-10-27:** the sync pulse moved from D22 to **D52**, and **D50** and **D48** now give the same pulse.
-> Rigs wired earlier: move the sync wires from D22 together with the firmware update: the LED to D52, the audio
-> divider to D50, and the camera opto input and Intan to D48.
+> **Changed 2026-10-27:** the sync pulse moved from D22 to **D52**, and **D50** gives the same pulse for the audio.
+> Rigs wired earlier: with the firmware update, move the LED to D52 and the audio divider to D50.
 
 | MEGA pin | Function in firmware | Connect to | Notes |
 |---|---|---|---|
 | USB-B | serial to PC, 500000 baud | PC | opening the port resets the board (that's normal) |
-| GND | ground | common GND | readers, reader supply, sync LED, audio divider; optional camera OPTO_GND and Intan I/O GND |
+| GND | ground | common GND | readers, reader supply, sync LED, audio divider, the cameras' OPTO_GND |
 | 5V | board 5 V | readers on the bench only | not in the cage (use the separate supply) |
 | D2, D3, D4, D5 | Tag-in-Range inputs, readers 1–4 | ID-20LA pin 6 | the readers drive them; no pull-up needed. Optional 47 kΩ from each to GND: a broken TIR wire then reads "no tag" instead of a phantom subject |
 | D19 (RX1), D17 (RX2), D15 (RX3) | reader 1–3 data in (9600) | ID-20LA pin 9 | hardware UARTs |
 | D10 | reader 4 data in (SoftwareSerial RX) | ID-20LA pin 9 | pin supports pin-change interrupts |
-| **D52** | **sync pulse out**: 80 ms HIGH at random 2–6 s intervals | the sync LED only: 330 Ω → red LED anode (§4.1) | each pulse is logged as `SYNC`. D52 sits at the GND end of the double header, beside the two GND pins. It is also the SPI clock (SCK), which is unused here |
-| **D50** | **the same sync pulse** as D52 | 10 kΩ / 1.8 kΩ divider → M4 In 3 (§7.2) | switches within ~10 µs of D52, less than one audio sample |
-| **D48** | **the same sync pulse** as D52 | spare: nothing connected yet. For camera pin 9 (§5.3) and Intan DIGITAL IN 2 (§6.2) | switches within ~10 µs of D52, less than one Intan sample. Only connect inputs to D50 and D48, never another device's output |
+| **D52** | **sync pulse out**: 80 ms HIGH at random 2–6 s intervals | the sync LED only: 330 Ω → red LED anode (§4.1) | each pulse is logged as `SYNC`. D52 sits at the GND end of the double header, beside the two GND pins |
+| **D50** | **the same sync pulse** as D52 | 10 kΩ / 1.8 kΩ divider → M4 In 3 (§7.2) | audio only |
+| **D48** | **the same sync pulse** as D52 | not connected | only ever connect inputs to D50 and D48, never another device's output |
+| **D46** | **frame trigger out** (Timer5): a 1 ms pulse at the start of every frame | every camera's pin 9 OPTO_IN (§5.3) | off until Acquire connects the RFID reader (the PC sends `F<fps>`); each pulse is logged as `TRIG` |
 | D13 | on-board LED: lit while any reader has a tag | — | visual check only |
 | D18 (TX1), D16 (TX2), D14 (TX3), D11 (SoftSerial TX) | driven by the UARTs | **leave unconnected** | do not use as inputs |
 | A0 | random seed for the sync intervals | **leave unconnected** | must float |
-| **D46** | **frame trigger out** (Timer5): a 1 ms pulse at the start of every frame, while the PC asks for it | every frame-triggered camera's trigger input (§5.5) | optional, for frame-locked cameras (3D). Off until the PC sends `F<fps>` (`sync: frame_trigger: source: rfid`); pulses logged as `TRIG` lines |
-| D20, D21 | free, interrupt-capable | — | reserved for the future camera exposure-active input |
-| D22–D47, D49, D51, D53, other analog pins | free | — | |
+| D20–D45, D47, D49, D51, D53, other analog pins | free | — | |
 
 ---
 
@@ -178,20 +178,10 @@ D52 drives a red LED and nothing else.
 
 ### 4.1 Red LED, straight from D52
 
-**Circuit:** MEGA **D52 → 330 Ω → LED anode**, **LED cathode → GND**.
-- With a red LED (Vf ≈ 2 V) this draws about 9 mA. That's within the ATmega2560's recommended 20 mA per pin.
-- A red LED sold as "5 V" has the resistor built in: wire it straight to D52 and GND (table below).
-- The birds see a visible LED, so point it at the camera through a short tube (§4.2).
-
-**Buying LEDs for D52.** The pin outputs 5 V. Keep the LED current at **15 mA or less**.
-
-| LED sold as | Wiring | Notes |
-|---|---|---|
-| **"5 V", with built-in resistor** (pre-wired) | D52 → LED + (red), LED − → GND | **Recommended:** nothing to add. Check that the listed current is ≤ 15 mA. |
-| **"3 V"**, or a bare LED (no resistor) | D52 → **resistor** → LED + (anode, long leg), LED − → GND | Needs the resistor. White/blue (≈ 3 V): **220 Ω** (≈ 9 mA). Red/yellow (≈ 2 V): **330 Ω** (≈ 9 mA). |
-
-**Never connect a bare or "3 V" LED straight to the pin.** Nothing would then limit the current except the pin
-itself, which can exceed the pin's 40 mA absolute maximum and damage it.
+**Circuit:** MEGA **D52 → 330 Ω → LED anode** (long leg), **LED cathode → GND**.
+- A red LED sold as "5 V" has the resistor built in: wire it straight to D52 and GND.
+- A bare LED, or one sold as "3 V", always needs the resistor. Straight on the pin it can damage the pin.
+- The birds see a visible LED, so point it at the cameras through a short tube (§4.2).
 
 **Checks**
 1. Run `mavric link-test --port COM3`. The LED flashes once per `SYNC` line, every 2–6 s.
@@ -208,89 +198,51 @@ itself, which can exceed the pin's 40 mA absolute maximum and damage it.
   flash (the analysis needs a contrast of more than about 20 grey levels).
 
 **Pulse length vs frame rate:** the 80 ms pulse covers at least 2 frames down to 25 fps.
-- **Slower camera** (e.g. a Chameleon3 CM3-U3-28S4 at 13 fps): raise `SYNC_PULSE_US` in the firmware to ≥ 160 000, and
-  set `sync.led_pulse_s: 0.16` in `rig.yaml` to match.
+- **Slower camera** (below 25 fps, e.g. 13 fps): raise `SYNC_PULSE_US` in the firmware to ≥ 160 000, and set
+  `sync.led_pulse_s: 0.16` in `rig.yaml` to match.
 - `mavric camtest` and the recording warn if the pulse is too short.
 
 ---
 
-## 5. Camera: Point Grey Chameleon3 (CM3-U3)
+## 5. Cameras
 
-### 5.1 Required connections
+Two FLIR USB3 cameras (Chameleon3 in the reference rig) film the wall with the perches, both on the frame trigger
+from D46.
 
-- **USB 3.0 Micro-B** to the PC. Use a **USB 3.0 port on a PCIe 2.0 controller** or the motherboard.
-  - PCIe 1.0 cards are limited to about 180 MB/s.
-  - Use the screw-locking cable, ≤ 5 m long; not 5 m on laptops.
-  - The camera is powered through USB (5 V, < 3 W).
-- **Lens:** CS-mount; a C-mount lens needs the 5 mm adapter. Not included with the camera.
-- **Mounting:** M2/M3 holes, or the tripod adapter (¼-20). Mount it on a metal bracket for heat; the camera runs warm.
-- **Nothing on the GPIO connector is needed** for MAVRIC with the Chameleon3. Sync uses the LED seen in the image.
+### 5.1 Connections
 
-### 5.2 GPIO connector pin-map (9-pin, as seen from the rear)
+- **USB 3.0** to the PC: a USB 3.0 port on the motherboard or on a PCIe 2.0 card, ideally one controller per camera.
+  Screw-locking cable, ≤ 5 m. The camera is powered through USB.
+- **Lens:** CS-mount; a C-mount lens needs the 5 mm adapter.
+- **Mounting:** on a metal bracket; the camera runs warm.
+- **GPIO:** pins 9 and 7 carry the frame trigger (§5.3). Nothing else is connected.
 
-**Connector parts:** header JST **BM09B-NSHSS-TBT**; mating plug **NSHR-09V-S** with **SSHL-003T-P0.2** crimp
-contacts. A pre-wired GPIO cable with the colours below is available from Point Grey / FLIR.
+### 5.2 GPIO connector (9-pin, as seen from the rear)
 
-| Pin | Wire colour | Signal | Electrical | Use in MAVRIC |
-|---|---|---|---|---|
-| 1 | red | V_EXT power in | 5–24 V DC | **not used** (USB power). Only if USB power is insufficient (long cable). |
-| 2 | black | GND | for V_EXT, +3.3 V, GPIO2/3 | not used |
-| 3 | white | +3.3 V out | 150 mA max, fused | **leave open** |
-| 4 | green | GPIO3 / Line3 | bidirectional, non-isolated, 0–24 V | leave open |
-| 5 | purple | GPIO2 / Line2 | bidirectional, non-isolated, 0–24 V | leave open |
-| 6 | black | GND | as pin 2 | not used |
-| 7 | brown | **OPTO_GND** | ground of the isolated I/O | **optional:** MEGA GND. **Connect this first.** |
-| 8 | orange | **OPTO_OUT / Line1** | opto-isolated, open collector: needs a pull-up, ≤ 24 V, ≤ 25 mA | **future:** exposure-active strobe → MEGA D21 with a 4.7 kΩ pull-up to MEGA 5 V |
-| 9 | yellow | **OPTO_IN / Line0** | opto-isolated input, 0–30 V (abs. max 40 V) | **optional:** MEGA D48 (the sync pulse) |
+**Connector:** JST **BM09B-NSHSS-TBT**. A pre-wired GPIO cable with the colours below is available from FLIR.
 
-The opto-isolated limits apply when the camera is powered over USB (manual §6.5).
+| Pin | Wire colour | Signal | Use in MAVRIC |
+|---|---|---|---|
+| 7 | brown | **OPTO_GND** | MEGA GND. **Connect this first.** |
+| 9 | yellow | **OPTO_IN / Line0** | MEGA D46, the frame trigger |
+| 8 | orange | OPTO_OUT / Line1 | not used (§5.4) |
+| 1–6 | | power in, +3.3 V out, GPIO2/3, GND | leave open |
 
-### 5.3 Optional: sync pulse into the camera (pins 9 + 7)
+This is the Chameleon3's connector. Another camera has its own GPIO pin-map: wire D46 to its opto-isolated input and
+the MEGA GND to that input's ground, and name the input in `trigger_line` if it is not Line0.
 
-**Wiring**
-1. MEGA **GND → pin 7 (OPTO_GND)**, *before* any signal.
-2. MEGA **D48 → pin 9 (OPTO_IN)**. D48 is the spare sync output, with the same pulse as the LED on D52.
+### 5.3 Frame trigger from D46 (pins 9 + 7)
 
-**Check:** in **SpinView**, set Line0 to *Input* and watch *LineStatus* flip on each flash.
-- If it never goes high, check that pin 7 (OPTO_GND) is joined to the MEGA GND.
-
-**What it gives today:** a wiring check only. The Chameleon3 cannot store the line state per frame: its GenICam chunks
-are image CRC, frame counter, offsets, size, exposure, gain and black level. So `line_status: false` stays in
-`rig.yaml`.
-- The pin becomes useful with a camera that has a line-status chunk: Basler `LineStatusAll`, or FLIR Blackfly S
-  models with `ExposureEndLineStatusAll` (not the BFS-U3-16S2, whose chunks have no line state).
-- With the frame trigger (§5.5), the opto input takes the trigger instead.
-
-### 5.4 Future: exposure-active pulses to the Arduino (pins 8 + 7)
-
-This would log every exposure start on the Arduino clock, giving frame-exact video↔RFID sync with no image analysis.
-
-**Wiring**
-1. Pin **7 (OPTO_GND) → MEGA GND**.
-2. Pin **8 (OPTO_OUT) → MEGA D21**, with a **4.7 kΩ pull-up from D21 to MEGA 5V** (about 1 mA, well under 25 mA).
-
-**Camera setting:** set Line1 to *Strobe* (exposure active). The open-collector output pulls low while active; use
-*LineInverter* if needed.
-
-**Not implemented yet:** this needs a firmware addition (log `FRAME` lines from an interrupt on D21) and a matching
-analysis step.
-
-### 5.5 Optional: frame trigger for 3D (pins 9 + 7)
-
-Every frame-triggered camera exposes on the same pulse, so their frames are taken together: what 3D tracking and pose
-need. The RFID MEGA makes the pulses in hardware (Timer5), at the rate set in `rig.yaml`.
-- **Why D46:** it is Timer5's output pin, so the timer itself switches it on the exact tick. Other pins, such as
-  the spare D48, can only be switched by the program, and the reader software holds the processor for up to about
-  1 ms at a time, so their edges would wander.
+Both cameras expose on the same pulse, so their frames are taken together, which 3D tracking and pose need. The RFID
+MEGA makes the pulses in hardware (Timer5), at the rate set in `rig.yaml`.
 
 **Wiring** (each camera)
-1. MEGA **GND → pin 7 (OPTO_GND)**, *before* any signal.
-2. MEGA **D46 → pin 9 (OPTO_IN, Line0)**. With several cameras, run one wire from D46 to each camera's pin 9 (a star,
-   not a chain), and one GND to each pin 7.
-- **Blackfly S:** its opto-isolated input is Line0 too; the pin numbers are in the camera's reference (GPIO).
-- **Basler ace:** the opto-isolated input is Line1 (`trigger_line: Line1` is the default for `basler`).
-- The opto input now carries the trigger, so the sync pulse from D48 (§5.3) cannot go there as well. The sync LED in
-  the image still checks the timing.
+1. MEGA **GND → pin 7 (OPTO_GND)**, *before* the signal.
+2. MEGA **D46 → pin 9 (OPTO_IN, Line0)**. Run one wire from D46 to each camera (a star, not a chain), and one GND
+   to each pin 7.
+
+**Why D46:** it is Timer5's output pin, so the timer itself switches it on the exact tick. A pin switched by the
+program would wander by up to about 1 ms, because the reader software holds the processor that long.
 
 **rig.yaml**
 ```yaml
@@ -299,17 +251,22 @@ sync:
 cameras:
   - {id: cam0, backend: flir, frame_trigger: true, ...}
 ```
-Or tick *Frame trigger (hardware)* per camera in *Video settings…*. The frame rate then comes from the trigger.
-Keep each exposure shorter than one frame interval (Acquire warns).
+Or tick *Frame trigger (hardware)* per camera in *Settings → Video settings…*. The frame rate then comes from the
+trigger. Keep each exposure shorter than one frame interval (Acquire warns).
 
 **What happens**
 - The MEGA sends the pulses from when Acquire connects the RFID reader until it disconnects (a board reset stops
-  them; MAVRIC starts them again). A frame-triggered camera without pulses sends no frames: the status line says it
+  them; MAVRIC starts them again). A camera on the trigger sends no frames without pulses: the status line says it
   is waiting for the frame trigger.
-- **Check:** with the RFID reader connected, each frame-triggered camera shows the trigger's frame rate, and the
-  status line shows *frame trigger: running*. In SpinView, Line0's *LineStatus* flickers.
+- **Check:** with the RFID reader connected, each camera shows the trigger's frame rate, and the status line shows
+  *frame trigger: running*. In SpinView, Line0's *LineStatus* flickers.
 - If a camera misses pulses, check its pin 7 (OPTO_GND) wire, and that its exposure is shorter than one frame
   interval.
+
+### 5.4 Future: exposure-active pulses (pin 8)
+
+Pin 8 could report every exposure to the MEGA (on D21), for frame-exact sync without the LED. Not built: it needs a
+firmware addition and a matching analysis step.
 
 ---
 
@@ -324,44 +281,30 @@ when output rules fire (acquire GUI → **Settings → Outputs…**). The RFID M
 |---|---|---|
 | USB | PC (any USB port) | 115200 baud. Find the COM port with `mavric ports`, and set it in the device (Outputs… → Devices). |
 | Firmware | `firmware/MAVRIC_IO/MAVRIC_IO.ino` | `arduino-cli compile --fqbn arduino:avr:uno firmware/MAVRIC_IO`, then `upload -p COMx` |
-| Output pins | any digital pin **except 0 and 1** (USB serial) | each pin gives 5 V high / 0 V low; draw ≤ 20 mA per pin, so anything bigger goes through a relay module (§6.3) |
-| GND | common with every device it drives (see below) | |
+| Output pins | any digital pin **except 0 and 1** (USB serial) | 5 V high / 0 V low, for small loads; anything bigger goes through a relay module (§6.2) |
+| GND | common with every device it drives | |
 
 **Watchdog.** If the PC stops talking for longer than `watchdog_s` (default 2 s), the board switches every pin low on
 its own, which also covers a crash or a pulled USB cable. Disarming, closing the app and saving the Outputs menu also
 switch all pins low.
 
-### 6.2 Intan RHD recording controller
+**Intan:** not wired in this rig.
 
-| From | To | Purpose |
-|---|---|---|
-| I/O Arduino pin (e.g. **D30**) | Intan **DIGITAL IN 1** BNC centre | event TTL (*hold* rule = high while a subject is at the place → **episodic triggered recording**; *pulse* rule = event marker) |
-| I/O Arduino **GND** | BNC shield **and** Intan **I/O GND** binding post (rear) | common reference |
-| RFID MEGA **D48** (the spare sync output, same pulse as the LED) | Intan **DIGITAL IN 2** BNC centre (+ MEGA GND → shield / I/O GND) | the same random pulse train as in the RFID log and the video, so ephys ↔ RFID ↔ video align offline |
-
-**Levels.** Intan digital inputs read 0–0.8 V as low and 2.0–5.5 V as high, and must **never exceed 5.5 V**. A 5 V
-Arduino pin is fine, and a 100–220 Ω series resistor is a cheap safeguard. A 3.3 V board would also work.
-
-**Triggered recording in Intan.** In the Intan software, select the trigger input (DIGITAL IN 1, high), the
-pre-trigger and the post-trigger seconds. RHX's **Remote TCP Control** can also start and stop recordings directly:
-add an *Intan RHX* device in Outputs….
-
-**Sharing D48.** The Intan input draws negligible current, so D48 can also feed the camera opto input (§5.3).
-
-### 6.3 LEDs and relays
+### 6.2 LEDs and relays
 
 | Load | Circuit | Notes |
 |---|---|---|
-| Small indicator LED (≤ 15 mA) | pin → 330 Ω → LED → GND | direct |
+| Small indicator LED | pin → 330 Ω → LED → GND | direct |
 | Lights, mains or other larger loads | a **relay module** with its own driver and flyback diode, "high-level trigger" type (MAVRIC's on = HIGH) | only with a certified module and enclosure; keep mains away from the cage and the animals |
 
-### 6.4 Checks
+### 6.3 Checks
 
 1. **Board answers:** `mavric outputs test io` reports `MAVRIC_IO 1.0 …`.
 2. **Each rule works:** `mavric outputs fire <rule>` runs it once. A *hold* rule switches on, then off after 1 s.
-   Watch it on the LED, a multimeter or the Intan display.
-3. **Intan input:** DIGITAL IN 1 follows the rule; DIGITAL IN 2 shows the random sync pulses.
-4. **Watchdog:** with a hold active, unplug the board's USB. The output must drop within about 2 s.
+   Watch it on the LED or a multimeter.
+3. **Watchdog:** with a hold active, unplug the board's USB. The output must drop within about 2 s.
+
+---
 
 ## 7. Audio: MOTU M4, two Rode NT5, sync pulse, four speakers
 
@@ -402,12 +345,8 @@ MEGA GND ─────────────┴──────── TRS 
 - **Ground:** the MEGA and the M4 already share ground through the PC's USB.
 - **Line input:** In 3 is AC-coupled. The recording shows a sharp step at each pulse edge with a sag in between,
   which is what MAVRIC detects.
-- **Level:** `mavric audio test` reports the step level. Anything between about −35 and −6 dBFS works.
-  - If the step clips, use 22 kΩ instead of 10 kΩ.
-  - If it is below −40 dBFS, use 4.7 kΩ.
-  - The values are not critical. With the 10 kΩ, a 1 kΩ bottom resistor gives a step about 4.5 dB lower (0.45 V),
-    and 270 Ω gives one about 15 dB lower (0.13 V), near the bottom of the range.
-- **Load on D50:** the 11.8 kΩ divider draws less than 0.5 mA.
+- **Level:** `mavric audio test` reports the step level. Anything between about −35 and −6 dBFS works. If the step
+  clips, use 22 kΩ instead of 10 kΩ; if it is below −40 dBFS, use 4.7 kΩ.
 
 ### 7.3 Checks
 
@@ -439,7 +378,8 @@ MEGA GND ─────────────┴──────── TRS 
    - SpinView streams.
    - `mavric ports` lists the camera.
    - `mavric camtest --cam cam0` shows no drops, the measured fps equals the configured fps, and there are no warnings.
-5. **Optional opto input:** Line0 *LineStatus* toggles with the LED.
+5. **Frame trigger:** wire D46 and GND to each camera (§5.3). With the RFID reader connected in Acquire, every
+   camera runs at the trigger's rate.
 6. **Acquire GUI:**
    - Draw the 4 perch ROIs and the SYNC box. Each ROI lights up when you hold a tag on its perch.
    - The SYNC box brightness jumps with each flash.
@@ -455,10 +395,7 @@ MEGA GND ─────────────┴──────── TRS 
   - §2 pin-out, §3 operating characteristics, §6 pin description, §7 absolute maximum ratings, §12 power supply,
     §17 layout precautions.
 - [Point Grey Chameleon3 Technical Reference v3.0 (2015)](https://www.teledynevisionsolutions.com/products/chameleon3-usb3/) (product page → Resources → CM3-U3 Technical Reference)
-  - §2.4 bus/bandwidth, §4.5 lens mount, §4.8 connectors and GPIO pin-map, §5.1 power, §6 I/O control,
-    §6.5 GPIO electrical characteristics, §C.8 chunk data.
-- [Intan Recording Controller user guide](https://intantech.com/files/Intan_Recording_Controller_user_guide.pdf)
-  - digital inputs (DIN) and outputs, TTL levels, RHX Remote TCP Control.
+  - §4.5 lens mount, §4.8 connectors and GPIO pin-map, §6 I/O control.
 - [Trinamic TMCM-1141 (Analog Devices)](https://www.analog.com/en/products/tmcm-1141.html) (product page → hardware and TMCL firmware manuals)
   - for a possible stepper-motor output (not built yet).
 - MultiRFID `Arduino Software/README.md` (reader-to-MEGA wiring), and the MAVRIC firmware

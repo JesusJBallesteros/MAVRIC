@@ -147,7 +147,7 @@ step 5), every camera shows the places it sees, coloured by who is there, here a
 true` on the cameras (or *Frame trigger (hardware)* in *Video settings…*), the RFID MEGA sends one pulse per frame on
 D46 to every camera's trigger input while the RFID reader is connected. The cameras then expose together.
 `mavric analyze` puts each frame at its pulse's time and pairs the cameras' frames in `analysis/frame_sets.csv`.
-Wiring: [docs/wiring.md §5.5](docs/wiring.md#55-optional-frame-trigger-for-3d-pins-9--7).
+Wiring: [docs/wiring.md §5.3](docs/wiring.md#53-frame-trigger-from-d46-pins-9--7).
 
 **Recording without the window** (e.g. scheduled): `mavric acquire --headless --duration 3600 --name night01`.
 Add `--audio` and `--arm-outputs` as needed.
@@ -492,7 +492,7 @@ MAVRIC was built around this rig; other cameras, interfaces and output devices f
 | Part | Reference rig | Notes |
 |---|---|---|
 | RFID | Arduino MEGA 2560 + 4× ID-20LA readers (125 kHz EM4100 tags) | firmware `firmware/MultiRFID_Reader_ID20LA_sync` |
-| Sync | the MEGA's D52 (LED), D50 (audio), D48 (spare) | one random pulse train, 80 ms pulses every 2–6 s |
+| Sync | the MEGA's D52 (LED) and D50 (audio) | one random pulse train, 80 ms pulses every 2–6 s |
 | Frame trigger (optional, 3D) | the MEGA's D46 → each camera's trigger input | one pulse per frame, the cameras expose together |
 | Cameras | FLIR / Point Grey Chameleon3 (USB 3) | also Basler, webcams (OpenCV), video files |
 | Audio | MOTU M4, two Rode NT5, powered speakers | any ASIO / WASAPI interface |
