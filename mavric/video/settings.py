@@ -5,6 +5,8 @@ loaded (rig.yaml keeps its comments; the GUI never rewrites it)::
 
     cameras:              # per camera id, any camera key of rig.yaml
       cam0: {fps: 60, exposure_us: 4000, width: 1024, height: 768}
+    added_cameras:        # cameras added in the GUI (Add camera…), after rig.yaml's own
+      - {id: cam2, backend: flir, device: "12345678", record: continuous, frame_trigger: true}
     video:                # recording and compression
       record_format: raw  # raw (lossless chunks, compress later) | h264 (compressed while recording)
       raw_codec: ffv1     # ffv1 (lossless, ~2x smaller) | rawvideo (uncompressed)
@@ -102,10 +104,33 @@ def params_for(backend: str) -> list[Param]:
     return PARAMS.get(backend, [FPS, RECORD])
 
 
+CAMERA_BACKENDS = ("flir", "basler", "opencv", "file", "synthetic")
+
+
+def new_camera(rig_cameras: list[dict], backend: str = "flir", device: str = "", record: str = "continuous",
+               frame_trigger: bool = False) -> dict:
+    """A camera entry for the GUI's Add camera…: the next free id (cam0, cam1, …) and the first camera's frame
+    rate and exposure, so a camera added to a rig matches the ones already there."""
+    ids = {str(c.get("id")) for c in rig_cameras}
+    k = 0
+    while f"cam{k}" in ids:
+        k += 1
+    first = rig_cameras[0] if rig_cameras else {}
+    cam = {"id": f"cam{k}", "backend": backend, "device": str(device), "fps": first.get("fps", 30),
+           "record": record}
+    if backend in ("flir", "basler"):
+        cam.update(exposure_us=first.get("exposure_us", 8000), gain_db=first.get("gain_db", 0.0),
+                   pixel_format=first.get("pixel_format", "Mono8"), line_status=bool(first.get("line_status", False)))
+    if frame_trigger:
+        cam["frame_trigger"] = True
+    return cam
+
+
 @dataclass
 class VideoSettings:
     cameras: dict[str, dict] = field(default_factory=dict)
     video: dict = field(default_factory=dict)
+    added: list[dict] = field(default_factory=list)  # cameras added in the GUI, after rig.yaml's own
 
     @classmethod
     def load(cls, path: str | Path) -> "VideoSettings":
@@ -113,19 +138,36 @@ class VideoSettings:
         if not p.exists():
             return cls()
         d = read_yaml(p)
-        return cls({str(k): dict(v or {}) for k, v in (d.get("cameras") or {}).items()}, dict(d.get("video") or {}))
+        added = [dict(c) for c in (d.get("added_cameras") or []) if isinstance(c, dict) and c.get("id")]
+        return cls({str(k): dict(v or {}) for k, v in (d.get("cameras") or {}).items()}, dict(d.get("video") or {}),
+                   added)
 
     def save(self, path: str | Path) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
+        d = {"cameras": self.cameras}
+        if self.added:
+            d["added_cameras"] = self.added
+        d["video"] = self.video
         with open(p, "w", encoding="utf-8") as f:
             f.write("# Camera and recording settings from the acquire GUI (Video settings...).\n"
-                    "# Merged over config/rig.yaml when the rig is loaded.\n")
-            yaml.safe_dump({"cameras": self.cameras, "video": self.video}, f, sort_keys=False, allow_unicode=True)
+                    "# Merged over config/rig.yaml when the rig is loaded; added_cameras come after rig.yaml's.\n")
+            yaml.safe_dump(d, f, sort_keys=False, allow_unicode=True)
+
+    @property
+    def added_ids(self) -> list[str]:
+        return [str(c["id"]) for c in self.added]
 
     def apply(self, rig: dict) -> dict:
-        """Merge into a loaded rig (in place) and return it."""
-        for cam in rig.get("cameras") or []:
+        """Merge into a loaded rig (in place) and return it. Added cameras whose id rig.yaml already uses are
+        skipped (rig.yaml wins)."""
+        cams = rig.setdefault("cameras", [])
+        ids = {str(c.get("id")) for c in cams}
+        for cam in self.added:
+            if str(cam["id"]) not in ids:
+                cams.append(copy.deepcopy(cam))
+                ids.add(str(cam["id"]))
+        for cam in cams:
             cam.update(copy.deepcopy(self.cameras.get(cam.get("id"), {})))
         video = rig.setdefault("video", {})
         for k, v in self.video.items():

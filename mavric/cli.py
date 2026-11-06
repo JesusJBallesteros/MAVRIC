@@ -20,7 +20,8 @@ def cmd_acquire(args):
     if args.headless:
         from .acquire import AcquisitionController, simulation_controller, stall_text
 
-        ctl = simulation_controller(rig, seed=args.seed) if args.sim else AcquisitionController(rig)
+        ctl = (simulation_controller(rig, seed=args.seed, n_cameras=args.cameras) if args.sim
+               else AcquisitionController(rig))
         try:
             print("connecting RFID ...")
             ctl.connect_rfid(getattr(ctl, "_sim_source", None))
@@ -68,7 +69,7 @@ def cmd_acquire(args):
         return
     from .gui.acquire_window import main as gui_main
 
-    gui_main(rig, sim=args.sim)
+    gui_main(rig, sim=args.sim, n_cameras=args.cameras)
 
 
 def cmd_review(args):
@@ -192,20 +193,13 @@ def cmd_ports(args):
     for p in list_ports():
         vid = f"{p['vid']:04X}:{p['pid']:04X}" if p["vid"] else ""
         print(f"{p['device']:8s} {vid:10s} {p['description']}")
-    try:
-        from pypylon import pylon
+    from .video.backends import list_connected_cameras
 
-        for d in pylon.TlFactory.GetInstance().EnumerateDevices():
-            print(f"basler   {d.GetModelName()} serial={d.GetSerialNumber()}")
-    except Exception:
-        pass
-    try:
-        from .video.flir import list_flir_cameras
-
-        for d in list_flir_cameras():
-            print(f"flir     {d['model']} serial={d['serial']}")
-    except Exception as e:
-        print(f"flir     (Spinnaker error: {e})")
+    found, errors = list_connected_cameras()
+    for d in found:
+        print(f"{d['backend']:8s} {d['model']} serial={d['serial']}")
+    for e in errors:
+        print(f"camera   ({e})")
 
 
 def cmd_link_test(args):
@@ -759,6 +753,8 @@ def main(argv=None):
     a.add_argument("--duration", type=float, default=30, help="(headless) recording length (s)")
     a.add_argument("--name", default="headless", help="(headless) session name")
     a.add_argument("--seed", type=int, default=0, help="(sim) random seed of the simulated cage")
+    a.add_argument("--cameras", type=int, default=None, metavar="N",
+                   help="(sim) N synthetic cameras seeing the cage in 3D, each from its own place (e.g. 3)")
     a.add_argument("--no-camera", action="store_true", help="(headless) record without cameras")
     a.add_argument("--arm-outputs", action="store_true", help="(headless) start and arm the output rules")
     a.add_argument("--audio", action="store_true", help="(headless) record audio even if audio.enabled is false")

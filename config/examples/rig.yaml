@@ -30,14 +30,22 @@ cameras:
     record: continuous     # continuous | triggered (only clips from clip rules: Outputs... -> Camera clips)
     # frame_trigger: true  # expose on each pulse of sync: frame_trigger (below), for frame-locked 3D; fps comes from there
     # trigger_line: Line0  # the trigger input (flir default Line0, the opto input; basler default Line1)
-  # A second camera: delete "# " (the hash and the space after it) from each line below,
-  # so "- id:" lines up with the "- id:" above, and give it its own serial number.
+  # More cameras: delete "# " (the hash and the space after it) from each line below,
+  # so "- id:" lines up with the "- id:" above, and give each its own serial number.
+  # Or add them in the acquire GUI: Settings -> Video settings... -> Add camera... (saved in config/video.yaml).
   # - id: cam1             # e.g. a camera that only records RFID-triggered clips
   #   backend: flir
   #   device: "40000001"
   #   fps: 30
   #   exposure_us: 8000
   #   record: triggered
+  # - id: cam2             # e.g. a third camera filming the places with the others, for 3D
+  #   backend: flir
+  #   device: "40000002"
+  #   fps: 30
+  #   exposure_us: 8000
+  #   record: continuous
+  #   frame_trigger: true  # with the others on the MEGA's D46 (docs/wiring.md, section 5.3)
 
 # Recording format, raw chunk size and compression defaults are also set in the acquire GUI
 # (Video settings..., saved in config/video.yaml, which overrides this file).

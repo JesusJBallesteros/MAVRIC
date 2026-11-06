@@ -408,6 +408,29 @@ BACKENDS = {
 }
 
 
+def list_connected_cameras() -> tuple[list[dict], list[str]]:
+    """Every FLIR (Spinnaker) and Basler (pylon) camera on this PC as {backend, model, serial}, and the errors of the
+    SDKs that failed (an SDK that is not installed is skipped quietly)."""
+    found, errors = [], []
+    try:
+        from .flir import list_flir_cameras
+
+        found += [{"backend": "flir", **d} for d in list_flir_cameras()]
+    except Exception as e:
+        errors.append(f"Spinnaker: {e}")
+    try:
+        from pypylon import pylon
+    except ImportError:
+        pylon = None
+    if pylon is not None:
+        try:
+            found += [{"backend": "basler", "model": d.GetModelName(), "serial": d.GetSerialNumber()}
+                      for d in pylon.TlFactory.GetInstance().EnumerateDevices()]
+        except Exception as e:
+            errors.append(f"pylon: {e}")
+    return found, errors
+
+
 def make_backend(cfg: dict, world=None) -> CameraBackend:
     kind = cfg.get("backend", "opencv")
     if kind not in BACKENDS:

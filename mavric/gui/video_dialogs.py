@@ -10,7 +10,8 @@ from PySide6 import QtCore, QtWidgets
 
 from ..config import resolve_path
 from ..video.compress import ffmpeg_command, options, session_jobs
-from ..video.settings import RAW_CODECS, RECORD_FORMATS, Param, VideoSettings, params_for, video_cfg
+from ..video.settings import (CAMERA_BACKENDS, RAW_CODECS, RECORD_FORMATS, Param, VideoSettings, new_camera,
+                              params_for, video_cfg)
 from .common import Worker, message
 
 PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]
@@ -59,11 +60,19 @@ class VideoSettingsDialog(QtWidgets.QDialog):
         lay = QtWidgets.QVBoxLayout(self)
 
         top = QtWidgets.QHBoxLayout()
+        left = QtWidgets.QVBoxLayout()
         self.cam_list = QtWidgets.QListWidget()
         self.cam_list.setFixedWidth(150)
         for c in self.cams:
             self.cam_list.addItem(c["id"])
-        top.addWidget(self.cam_list)
+        left.addWidget(self.cam_list, 1)
+        self.b_add = QtWidgets.QPushButton("Add camera…")
+        self.b_add.clicked.connect(self.add_camera)
+        self.b_remove = QtWidgets.QPushButton("Remove camera")
+        self.b_remove.clicked.connect(self.remove_camera)
+        left.addWidget(self.b_add)
+        left.addWidget(self.b_remove)
+        top.addLayout(left)
         right = QtWidgets.QVBoxLayout()
         self.cam_info = QtWidgets.QLabel("")
         self.cam_info.setWordWrap(True)
@@ -154,6 +163,10 @@ class VideoSettingsDialog(QtWidgets.QDialog):
             self._getters[p.key] = get
             sig.connect(lambda *_, key=p.key, live=p.live: self._changed(key, live))
         self.b_apply.setEnabled(not self.ctl.recording)
+        added = cam["id"] in VideoSettings.load(self.path).added_ids
+        self.b_remove.setEnabled(added and not self.ctl.recording)
+        self.b_remove.setToolTip("Remove this camera (added here) from the rig" if added else
+                                 "Cameras listed in rig.yaml are removed there (cameras: section)")
 
     def _update_info(self) -> None:
         cam = self._cam()
@@ -161,7 +174,65 @@ class VideoSettingsDialog(QtWidgets.QDialog):
         info = th.backend.info() if th is not None else {}
         state = (f"connected: {info.get('model', cam['backend'])} {info.get('width')}x{info.get('height')} at "
                  f"{info.get('fps', 0):.1f} fps") if th is not None else "not connected (settings apply on connect)"
-        self.cam_info.setText(f"<b>{cam['id']}</b> · {cam['backend']} {cam.get('device', '')} · {state}")
+        where = "added here" if cam["id"] in VideoSettings.load(self.path).added_ids else "from rig.yaml"
+        roi = " · ROI camera" if cam["id"] == self.ctl.roi_camera else ""
+        self.cam_info.setText(f"<b>{cam['id']}</b> · {cam['backend']} {cam.get('device', '')} · {state} · "
+                              f"{where}{roi}")
+
+    # ------------------------------------------------------------------ adding and removing cameras
+    def add_camera(self) -> None:
+        if self.ctl.recording:
+            message(self, "Add camera", "Stop the recording first.")
+            return
+        dlg = AddCameraDialog(self, self.ctl.rig["cameras"], sim=getattr(self.win, "sim", False))
+        if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self.add(dlg.camera())
+
+    def add(self, cam: dict) -> None:
+        """Add a camera to the rig: saved in video.yaml, listed here and under Devices."""
+        vs = VideoSettings.load(self.path)
+        vs.added.append(copy.deepcopy(cam))
+        vs.save(self.path)
+        self.ctl.rig["cameras"].append(copy.deepcopy(cam))
+        self.cams.append(copy.deepcopy(cam))
+        self.cam_list.addItem(cam["id"])
+        self.cam_list.setCurrentRow(self.cam_list.count() - 1)
+        self.win.reload_camera_list()
+        self.win.update_calibration_label()
+        self.win.statusBar().showMessage(
+            f"{cam['id']} added (saved in {self.path.name}). Connect it under Devices, then calibrate its lens and "
+            "the camera positions again (Settings → Calibrate cameras…)", 15000)
+
+    def remove_camera(self) -> None:
+        cam = self._cam()
+        vs = VideoSettings.load(self.path)
+        if cam["id"] not in vs.added_ids:
+            message(self, "Remove camera", f"{cam['id']} is listed in rig.yaml; remove it there.")
+            return
+        if cam["id"] in self.ctl.cams:
+            message(self, "Remove camera", f"Disconnect {cam['id']} first (Devices → Disconnect camera).")
+            return
+        r = QtWidgets.QMessageBox.question(self, "Remove camera", f"Remove {cam['id']} ({cam['backend']} "
+                                           f"{cam.get('device', '')}) from the rig? Its recordings and calibration "
+                                           "are kept.")
+        if r == QtWidgets.QMessageBox.StandardButton.Yes:
+            self.remove(cam["id"])
+
+    def remove(self, cid: str) -> None:
+        """Remove a camera added here from the rig (its files are kept)."""
+        vs = VideoSettings.load(self.path)
+        cam = next(c for c in self.cams if c["id"] == cid)
+        vs.added = [c for c in vs.added if str(c["id"]) != cam["id"]]
+        vs.cameras.pop(cam["id"], None)
+        vs.save(self.path)
+        self.ctl.rig["cameras"][:] = [c for c in self.ctl.rig["cameras"] if c["id"] != cam["id"]]
+        row = next(k for k, c in enumerate(self.cams) if c["id"] == cid)
+        del self.cams[row]
+        self.cam_list.takeItem(row)
+        self.cam_list.setCurrentRow(max(0, row - 1))
+        self.win.reload_camera_list()
+        self.win.update_calibration_label()
+        self.win.statusBar().showMessage(f"{cam['id']} removed from the rig", 5000)
 
     def _changed(self, key: str, live: bool) -> None:
         cam = self._cam()
@@ -225,6 +296,137 @@ class VideoSettingsDialog(QtWidgets.QDialog):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Session (or folder of videos) to compress", start)
         if folder:
             CompressDialog(self, folder, self.c_widgets.values()).exec()
+
+
+class AddCameraDialog(QtWidgets.QDialog):
+    """A new camera for the rig: its id, backend, serial number (picked from the cameras connected to this PC),
+    recording mode and frame trigger. Frame rate, exposure, gain and pixel format start as the first camera's."""
+
+    def __init__(self, parent, rig_cameras: list[dict], sim: bool = False):
+        super().__init__(parent)
+        self.setWindowTitle("Add camera")
+        self.resize(520, 300)
+        self.rig_cameras = rig_cameras
+        first = rig_cameras[0] if rig_cameras else {}
+        f = QtWidgets.QFormLayout(self)
+        self.id_edit = QtWidgets.QLineEdit(new_camera(rig_cameras)["id"])
+        f.addRow("Camera id", self.id_edit)
+        self.backend = QtWidgets.QComboBox()
+        self.backend.addItems(list(CAMERA_BACKENDS))
+        self.backend.setCurrentText("synthetic" if sim else str(first.get("backend", "flir")))
+        f.addRow("Backend", self.backend)
+        row = QtWidgets.QHBoxLayout()
+        self.device = QtWidgets.QComboBox()
+        self.device.setEditable(True)
+        self.device.setMinimumWidth(300)
+        row.addWidget(self.device, 1)
+        self.b_find = QtWidgets.QPushButton("Find cameras")
+        self.b_find.clicked.connect(self.find_cameras)
+        row.addWidget(self.b_find)
+        f.addRow("Device", row)
+        self.record = QtWidgets.QComboBox()
+        self.record.addItem("continuous: the whole session", "continuous")
+        self.record.addItem("triggered: only RFID-triggered clips", "triggered")
+        f.addRow("Recording", self.record)
+        self.frame_trigger = QtWidgets.QCheckBox("expose on the frame trigger with the other cameras (3D)")
+        self.frame_trigger.setChecked(bool(first.get("frame_trigger", False)))
+        f.addRow("Frame trigger", self.frame_trigger)
+        self.found_label = QtWidgets.QLabel("")
+        self.found_label.setWordWrap(True)
+        self.found_label.setStyleSheet("color: gray")
+        f.addRow(self.found_label)
+        note = QtWidgets.QLabel(
+            f"Frame rate, exposure, gain and pixel format start as {first.get('id', 'the first camera')}'s; change them "
+            f"here after adding. Saved in {getattr(parent, 'path', Path('config/video.yaml')).name} (rig.yaml is not "
+            "changed). Then connect it, and calibrate its lens and the camera positions again.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray")
+        f.addRow(note)
+        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok
+                                        | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        bb.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText("Add")
+        bb.accepted.connect(self._accept)
+        bb.rejected.connect(self.reject)
+        f.addRow(bb)
+        self.backend.currentIndexChanged.connect(self._backend_changed)
+        self._backend_changed()
+        from .tips import ADD_CAMERA, apply_tips
+
+        apply_tips(self, ADD_CAMERA)
+
+    def _backend_changed(self, *_) -> None:
+        kind = self.backend.currentText()
+        self.device.clear()
+        self.b_find.setEnabled(kind in ("flir", "basler"))
+        hints = {"flir": "serial number", "basler": "serial number", "opencv": "camera index (0, 1, …)",
+                 "file": "path of a video file", "synthetic": "(none)"}
+        self.device.lineEdit().setPlaceholderText(hints.get(kind, ""))
+        self.found_label.setText("Find cameras lists the cameras connected to this PC." if kind in ("flir", "basler")
+                                 else "")
+        if kind == "opencv":
+            used = {str(c.get("device")) for c in self.rig_cameras if c.get("backend") == "opencv"}
+            self.device.setEditText(next(str(k) for k in range(16) if str(k) not in used))
+
+    def find_cameras(self) -> None:
+        from ..video.backends import list_connected_cameras
+
+        kind = self.backend.currentText()
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        try:
+            found, errors = list_connected_cameras()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        used = {str(c.get("device")): c["id"] for c in self.rig_cameras if c.get("backend") == kind}
+        self.device.clear()
+        free, n_taken = None, 0
+        for d in (d for d in found if d["backend"] == kind):
+            taken = used.get(str(d["serial"]))
+            n_taken += bool(taken)
+            self.device.addItem(f"{d['serial']}  ·  {d['model']}" + (f"  (is {taken})" if taken else ""), d["serial"])
+            if not taken and free is None:
+                free = self.device.count() - 1
+        n = self.device.count()
+        self.device.setCurrentIndex(free if free is not None else -1)
+        if free is None:
+            self.device.setEditText("")
+        text = (f"{n} {kind} camera(s) found, {n_taken} already in the rig" if n else
+                f"No {kind} camera found: is it plugged in (USB 3), and closed in SpinView / pylon Viewer?")
+        self.found_label.setText(text + ("; " + "; ".join(errors) if errors else ""))
+
+    def _device_text(self) -> str:
+        i = self.device.currentIndex()
+        if i >= 0 and self.device.currentText() == self.device.itemText(i):
+            return str(self.device.itemData(i))
+        return self.device.currentText().split("·")[0].strip()
+
+    def camera(self) -> dict:
+        cam = new_camera(self.rig_cameras, self.backend.currentText(), self._device_text(),
+                         self.record.currentData(), self.frame_trigger.isChecked())
+        cam["id"] = self.id_edit.text().strip()
+        return cam
+
+    def _accept(self) -> None:
+        import re
+
+        cam = self.camera()
+        cid, kind, dev = cam["id"], cam["backend"], cam["device"]
+        problem = None
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", cid):
+            problem = "The id names the camera's files (cam2_raw_000.mkv): use letters, digits, - and _."
+        elif cid in {str(c.get("id")) for c in self.rig_cameras}:
+            problem = f"{cid} is already a camera of this rig; give the new one its own id."
+        elif dev and any(c.get("backend") == kind and str(c.get("device")) == dev for c in self.rig_cameras):
+            other = next(c["id"] for c in self.rig_cameras if c.get("backend") == kind and str(c.get("device")) == dev)
+            problem = f"{other} already uses {kind} {dev}."
+        elif kind in ("flir", "basler") and not dev and any(c.get("backend") == kind for c in self.rig_cameras):
+            problem = (f"Give its serial number (Find cameras): with none, it would open the first {kind} camera "
+                       "found, which another camera of the rig may be using.")
+        elif kind == "file" and not dev:
+            problem = "Give the path of the video file."
+        if problem:
+            message(self, "Add camera", problem)
+            return
+        self.accept()
 
 
 class CompressOptions(QtWidgets.QWidget):

@@ -134,38 +134,46 @@ class AcquireWindow(QtWidgets.QMainWindow):
         f.addWidget(QtWidgets.QLabel("Camera"), 1, 0)
         f.addWidget(self.cam_combo, 1, 1, 1, 2)
         f.addWidget(self.b_cam, 1, 3)
+        self.cams_label = QtWidgets.QLabel("")
+        self.cams_label.setWordWrap(True)
+        self.cams_label.setToolTip("Cameras of the rig: ● connected, ○ not. Add one in Settings → Video settings…")
+        self.b_all = QtWidgets.QPushButton("Connect all cameras")
+        self.b_all.clicked.connect(self._connect_all)
+        f.addWidget(self.cams_label, 2, 1, 1, 2)
+        f.addWidget(self.b_all, 2, 3)
+        self._update_cams_label()
         acfg = self.ctl.audio_cfg
         self.b_audio = QtWidgets.QPushButton("Connect audio")
         self.b_audio.clicked.connect(self._toggle_audio)
-        f.addWidget(QtWidgets.QLabel("Audio"), 2, 0)
-        f.addWidget(QtWidgets.QLabel(acfg.describe() if acfg.inputs else "not configured"), 2, 1, 1, 2)
-        f.addWidget(self.b_audio, 2, 3)
+        f.addWidget(QtWidgets.QLabel("Audio"), 3, 0)
+        f.addWidget(QtWidgets.QLabel(acfg.describe() if acfg.inputs else "not configured"), 3, 1, 1, 2)
+        f.addWidget(self.b_audio, 3, 3)
         self.b_audio.setEnabled(bool(acfg.inputs))
         self.view_combo = QtWidgets.QComboBox()
         self.view_combo.setToolTip("Connected camera shown in the live view. ROIs are drawn on "
                                    f"{self.ctl.roi_camera} (the first camera in rig.yaml); the other cameras show the "
                                    "places placed in 3D (Settings → Calibrate cameras…, tab 3).")
         self.view_combo.currentIndexChanged.connect(self._view_changed)
-        f.addWidget(QtWidgets.QLabel("View"), 3, 0)
-        f.addWidget(self.view_combo, 3, 1, 1, 3)
+        f.addWidget(QtWidgets.QLabel("View"), 4, 0)
+        f.addWidget(self.view_combo, 4, 1, 1, 3)
         self.cal_label = QtWidgets.QLabel("")
         self.cal_label.setWordWrap(True)
-        f.addWidget(QtWidgets.QLabel("Calibration"), 4, 0)
-        f.addWidget(self.cal_label, 4, 1, 1, 3)
+        f.addWidget(QtWidgets.QLabel("Calibration"), 5, 0)
+        f.addWidget(self.cal_label, 5, 1, 1, 3)
         self.update_calibration_label()
         self.pos_label = QtWidgets.QLabel("—")
         self.pos_label.setWordWrap(True)
         self.pos_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
         self.pos_label.setToolTip(POSITION_TIP)
-        f.addWidget(QtWidgets.QLabel("Position"), 5, 0)
-        f.addWidget(self.pos_label, 5, 1, 2, 2)
+        f.addWidget(QtWidgets.QLabel("Position"), 6, 0)
+        f.addWidget(self.pos_label, 6, 1, 2, 2)
         self.b_align = QtWidgets.QPushButton("Alignment overlay")
         self.b_align.setCheckable(True)
         self.b_align.toggled.connect(self._align_toggled)
-        f.addWidget(self.b_align, 5, 3)
+        f.addWidget(self.b_align, 6, 3)
         b_ref = QtWidgets.QPushButton("New reference")
         b_ref.clicked.connect(self._new_reference)
-        f.addWidget(b_ref, 6, 3)
+        f.addWidget(b_ref, 7, 3)
         f.setColumnStretch(1, 1)
         self._panel("devices", w)
 
@@ -438,6 +446,44 @@ class AcquireWindow(QtWidgets.QMainWindow):
 
         self._run(lambda: self.ctl.connect_camera(cfg), done, f"Connecting camera {cfg['id']}")
 
+    def _connect_all(self) -> None:
+        """Every camera of the rig not yet connected, one after the other, then all of them side by side."""
+        todo = [dict(c) for c in self.rig["cameras"] if c["id"] not in self.ctl.cams]
+        if not todo:
+            self.statusBar().showMessage("Every camera is connected", 4000)
+            return
+        self.b_all.setEnabled(False)
+        self.b_cam.setEnabled(False)
+
+        def work():
+            errors = []
+            for c in todo:
+                try:
+                    self.ctl.connect_camera(c)
+                except Exception as e:  # the others still connect
+                    errors.append(f"{c['id']}: {type(e).__name__}: {e}")
+            return errors
+
+        def done(errors):
+            self.b_all.setEnabled(True)
+            self.b_cam.setEnabled(True)
+            cur = self.cam_combo.currentData()
+            self.b_cam.setText("Disconnect camera" if cur and cur["id"] in self.ctl.cams else "Connect camera")
+            self._refresh_views(select=GRID if len(self.ctl.cams) >= 2 else None)
+            ok = [c["id"] for c in todo if c["id"] in self.ctl.cams]
+            self.statusBar().showMessage(f"Connected {', '.join(ok) or 'no camera'}", 8000)
+            if errors:
+                message(self, "Connect all cameras", "Some cameras did not connect:\n\n" + "\n".join(errors),
+                        error=True)
+
+        self._run(work, done, "Connecting all cameras")
+
+    def _update_cams_label(self) -> None:
+        cams = self.rig["cameras"]
+        self.cams_label.setText("  ".join(("●" if c["id"] in self.ctl.cams else "○") + " " + c["id"] for c in cams))
+        self.b_all.setVisible(len(cams) >= 2)
+        self.cams_label.setVisible(len(cams) >= 2)
+
     def reload_camera_list(self) -> None:
         """Camera choices from the (possibly just edited) rig."""
         cur = self.cam_combo.currentData()["id"] if self.cam_combo.count() else None
@@ -451,6 +497,11 @@ class AcquireWindow(QtWidgets.QMainWindow):
         i = next((k for k, c in enumerate(self.rig["cameras"]) if c["id"] == cur), 0)
         self.cam_combo.setCurrentIndex(i)
         self.cam_combo.blockSignals(False)
+        c = self.cam_combo.currentData()
+        if hasattr(self, "b_cam") and c is not None:
+            self.b_cam.setText("Disconnect camera" if c["id"] in self.ctl.cams else "Connect camera")
+        if hasattr(self, "cams_label"):
+            self._update_cams_label()
 
     def reconnect_camera(self, cfg: dict, on_done=None) -> None:
         """Close and reopen a connected camera with new settings."""
@@ -514,6 +565,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
             self._show_rois()
 
     def _refresh_views(self, select: str | None = None) -> None:
+        self._update_cams_label()
         cur = select or self._view_id
         self.view_combo.blockSignals(True)
         self.view_combo.clear()
@@ -878,7 +930,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self._set_devices_enabled(False)
 
     def _set_devices_enabled(self, on: bool) -> None:
-        for b in (self.b_rfid, self.b_cam, self.b_audio):
+        for b in (self.b_rfid, self.b_cam, self.b_all, self.b_audio):
             b.setEnabled(on)
         self.cam_combo.setEnabled(on)
 
@@ -1103,9 +1155,9 @@ class AcquireWindow(QtWidgets.QMainWindow):
         ev.accept()
 
 
-def main(rig: dict, sim: bool = False) -> None:
+def main(rig: dict, sim: bool = False, n_cameras: int | None = None) -> None:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
-    ctl = simulation_controller(rig) if sim else AcquisitionController(rig)
+    ctl = simulation_controller(rig, n_cameras=n_cameras) if sim else AcquisitionController(rig)
     win = AcquireWindow(ctl, sim)
     win.show()
     app.exec()

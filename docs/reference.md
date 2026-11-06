@@ -144,9 +144,9 @@ an ArUco marker.
 
   `world:` holds the frame, the date and the 3D error. Saving replaces every camera's position: positions from
   different solves would not share one world.
-- **Simulation:** with several synthetic cameras (`mavric acquire --sim` and a `synthetic` entry per camera in
-  `rig.yaml`), each camera gets its own lens and place around the cage, and the board moves between poses that two
-  of them see. With the lenses calibrated in tab 1, the positions come out within a few millimetres of the truth.
+- **Simulation:** with several synthetic cameras (`mavric acquire --sim --cameras 3`, or a `synthetic` entry per
+  camera in `rig.yaml`), each camera gets its own lens and place around the cage, and the board moves between poses
+  that two of them see. With the lenses calibrated in tab 1, the positions come out within a few millimetres of the truth.
 
 **Places in 3D** (tab 3 of the dialog, `mavric/video/places.py`):
 - **Needs:** the ROI camera's lens and position, and positions saved with a floor origin (heights are measured from
@@ -313,8 +313,8 @@ All models are global shutter, which gives no motion distortion with flapping wi
   cage size and the sensor size (1/2" for the 13Y3, 1/3" for the 13S2).
 - **USB 3.0 port:** use a PCIe 2.0 host controller or a built-in USB 3 port, with a 3–5 m cable. A 5 m cable is not
   recommended on laptops.
-- **Bandwidth:** 1280×1024 Mono8 at 30 fps is about 39 MB/s per camera, so two cameras on one controller are
-  normally fine. Each camera still sends every frame in a burst at full link speed, though, and some host controllers
+- **Bandwidth:** 1280×1024 Mono8 at 30 fps is about 39 MB/s per camera, so two or three cameras on one controller
+  (about 118 MB/s for three) are normally fine. Each camera still sends every frame in a burst at full link speed, though, and some host controllers
   then lose packets. If a camera works alone but delivers only incomplete images next to another one, cap each
   camera's share with `link_limit_mb_s` (e.g. `150`) under that camera in `rig.yaml`. Or give it its own USB 3
   controller (a PCIe card).
@@ -382,6 +382,7 @@ With the environment active (`conda activate mavric`):
 
 ```bash
 mavric acquire --sim                 # GUI with a simulated cage + simulated Arduino
+mavric acquire --sim --cameras 3     # the same with three cameras seeing the cage in 3D
 mavric simulate sessions --duration 300 --audio
 mavric audio test --sim --tones      # simulated audio interface, speakers heard by the mics
 mavric review sessions/<the simulated session>
@@ -481,7 +482,10 @@ arduino-cli upload --fqbn arduino:avr:mega -p COM3 firmware/MultiRFID_Reader_ID2
 - continuous or clips-only recording.
 
 Exposure, gain, brightness, gamma and white balance change live (⚡); the rest reconnect the camera. *Save* writes
-`config/video.yaml`, which overrides `rig.yaml` (`rig.yaml` keeps its comments).
+`config/video.yaml`, which overrides `rig.yaml` (`rig.yaml` keeps its comments). *Add camera…* and *Remove camera*
+add a camera to the rig, or remove one added here ([below](#rfid-triggered-clips-optional)). In the simulation
+(`mavric acquire --sim`) these settings go to `sessions/_sim_video.yaml` instead, so they never change the real
+rig's cameras.
 
 **Raw recording (default).** Every frame is kept bit-exact, in files of about 2 GB (adjustable):
 - **Files:** `cam0_raw_000.mkv`, `cam0_raw_001.mkv`, …
@@ -554,10 +558,24 @@ cameras:
 **Pin every camera to its serial number** once there is more than one. `device: ""` means "the first camera found",
 so two cameras would both pick the same one.
 
+**Or add it in the acquire window:** *Settings → Video settings… → Add camera…*.
+- **Device:** *Find cameras* lists the FLIR and Basler cameras on this PC by serial number, and marks the ones the
+  rig already uses. The first free one is picked.
+- **Id:** the next free one (`cam2` after `cam0` and `cam1`).
+- **Settings:** recording mode and frame trigger are chosen here; frame rate, exposure, gain and pixel format start
+  as the first camera's.
+- **Where it is saved:** under `added_cameras:` in `config/video.yaml`, after the cameras of `rig.yaml`, which is
+  never rewritten. *Remove camera* takes out only a camera added this way.
+- **Then:** connect it, calibrate its lens, and solve the camera positions again (*Calibrate cameras…*, tabs 1 and
+  2). Positions from one solve share one world, so all cameras are placed together.
+
 In the acquire window:
-- **Connect camera:** pick each camera in the *Camera* list and connect it.
+- **Connect camera:** pick each camera in the *Camera* list and connect it. *Connect all cameras* connects every
+  camera not yet connected, in the order of `rig.yaml`, then shows them side by side. The dots next to it show which
+  are connected (●) and which are not (○).
 - **View:** chooses which connected camera is shown. *All cameras* shows every connected camera side by side for
-  monitoring: frame rate, recording, clips only, and a clip in progress.
+  monitoring: frame rate, recording, clips only, and a clip in progress. The tiles take the arrangement that shows
+  them largest: three cameras sit two above one in a tall window, side by side in a wide one.
 - **ROIs:** they are drawn on the first camera of `rig.yaml`, whatever the connection order. Once the places are
   placed in 3D (*Calibrate cameras…*, tab 3), the other cameras show them too, in their single view and in *All
   cameras*.

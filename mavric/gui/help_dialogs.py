@@ -13,7 +13,7 @@ BASICS = {
 <li><b>Connect.</b>
   <ul>
   <li>Pick the RFID port and press <i>Connect RFID</i> (the Arduino resets, ~2 s).</li>
-  <li>Pick each camera and press <i>Connect camera</i>.</li>
+  <li>Pick each camera and press <i>Connect camera</i>, or press <i>Connect all cameras</i>.</li>
   <li><i>Connect audio</i> (optional): microphones, the sync pulse input and the speakers.</li>
   </ul></li>
 <li><b>ROIs and LED</b> (once per setup, on the first camera).
@@ -35,7 +35,7 @@ BASICS = {
   </ul></li>
 <li><b>Settings menu.</b>
   <ul>
-  <li><i>Video settings…</i>: exposure, gain, image size, recording format.</li>
+  <li><i>Video settings…</i>: exposure, gain, image size, recording format; <i>Add camera…</i> adds a camera (e.g. a third one) by its serial number.</li>
   <li><i>Calibrate cameras…</i>: each camera's lens, then where all cameras are, from views of the ChArUco board
   (<i>Sticker sheet…</i> turns a plain checkerboard into one); then each place's height, so every camera shows the
   places; then where the microphones and speakers are, checked by sound.</li>

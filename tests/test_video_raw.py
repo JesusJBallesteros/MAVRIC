@@ -235,7 +235,8 @@ def test_video_dialogs(tmp_path):
     dlg.chunk.setValue(750)
     dlg.c_widgets.crf.setValue(21)
     dlg.save()
-    vs = VideoSettings.load(tmp_path / "video.yaml")
+    assert not (tmp_path / "video.yaml").exists()  # the simulation keeps its settings apart from the rig's
+    vs = VideoSettings.load(tmp_path / "_sim_video.yaml")
     assert vs.video["raw_chunk_mb"] == 750 and vs.video["compress"]["crf"] == 21
     assert "cam0" in vs.cameras and ctl.rig["video"]["raw_chunk_mb"] == 750
     w = LosslessChunkWriter(tmp_path / "x", 30.0, (320, 240), "ffv1")

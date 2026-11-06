@@ -361,7 +361,7 @@ Every device has a simulated twin, for learning and testing:
 - Outputs: the rules are saved and tested.
 
 **In `mavric acquire`**
-1. **Connect:** RFID port → *Connect RFID*; each camera → *Connect camera*; *Connect audio*.
+1. **Connect:** RFID port → *Connect RFID*; each camera → *Connect camera* (or *Connect all cameras*); *Connect audio*.
 2. **ROIs and LED** (once per setup, on the first camera): each place's button (*1 PlaceA*, …) draws its polygon;
    fit its corners to the place. Then *LED box* over the LED, then *Save ROIs to rig*.
 3. **Check:**

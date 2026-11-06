@@ -16,7 +16,7 @@ microphones with its own time difference; a speaker hangs in each top corner.*
 two NT5, sync divider, four speakers). The I/O Arduino is optional.*
 
 **What this covers:** what plugs in where: the PC, the Arduino MEGA, the four ID-20LA perch readers, the sync LED,
-two FLIR USB3 cameras on the frame trigger, and the audio (MOTU M4, two Rode NT5, four speakers; §7).
+two FLIR USB3 cameras (or three) on the frame trigger, and the audio (MOTU M4, two Rode NT5, four speakers; §7).
 
 **Required vs optional:** everything marked **required** is needed for a working rig. **Optional** connections only
 add redundancy, or prepare later upgrades.
@@ -207,7 +207,8 @@ D52 drives a red LED and nothing else.
 ## 5. Cameras
 
 Two FLIR USB3 cameras (Chameleon3 in the reference rig) film the wall with the perches, both on the frame trigger
-from D46.
+from D46. A third camera is wired the same way: its own USB 3.0 cable, its own D46 wire and its own GND to pin 7
+(§5.3). Add it in Acquire with *Settings → Video settings… → Add camera…*, then calibrate it with the others.
 
 ### 5.1 Connections
 
@@ -233,8 +234,8 @@ the MEGA GND to that input's ground, and name the input in `trigger_line` if it 
 
 ### 5.3 Frame trigger from D46 (pins 9 + 7)
 
-Both cameras expose on the same pulse, so their frames are taken together, which 3D tracking and pose need. The RFID
-MEGA makes the pulses in hardware (Timer5), at the rate set in `rig.yaml`.
+Every camera on the trigger exposes on the same pulse, so their frames are taken together, which 3D tracking and pose
+need. The RFID MEGA makes the pulses in hardware (Timer5), at the rate set in `rig.yaml`.
 
 **Wiring** (each camera)
 1. MEGA **GND → pin 7 (OPTO_GND)**, *before* the signal.

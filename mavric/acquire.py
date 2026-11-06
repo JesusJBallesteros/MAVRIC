@@ -9,6 +9,7 @@ of that anchor.
 
 from __future__ import annotations
 
+import copy
 import threading
 from collections import deque
 
@@ -23,7 +24,7 @@ from .triggers import TriggerManager, TriggerRule, ring_seconds
 from .video.backends import CameraBackend, Frame, make_backend
 from .video.check import led_pulse_warning
 from .video.recorder import VideoRecorder
-from .video.settings import video_cfg
+from .video.settings import VideoSettings, video_cfg
 
 
 class CameraThread(threading.Thread):
@@ -294,7 +295,10 @@ class AcquisitionController:
         be.open()
         th = CameraThread(be, self.bus, ring_s=ring_seconds(self.rules, be.id))
         th.start()
-        self.cams[be.id] = th
+        # kept in rig.yaml's order, however they were connected; a new dict, as the GUI may be going through the old
+        order = [str(c.get("id")) for c in self.rig["cameras"]]
+        cams = {**self.cams, be.id: th}
+        self.cams = dict(sorted(cams.items(), key=lambda kv: order.index(kv[0]) if kv[0] in order else len(order)))
         return th
 
     def disconnect_camera(self, cam_id: str) -> None:
@@ -640,9 +644,12 @@ def disk_warning(folder, cams: dict, vcfg: dict, min_hours: float = 2.0) -> str 
     return None
 
 
-def simulation_controller(rig: dict, duration_s: float = 3600, seed: int = 0) -> AcquisitionController:
+def simulation_controller(rig: dict, duration_s: float = 3600, seed: int = 0,
+                          n_cameras: int | None = None) -> AcquisitionController:
     """Controller wired to a simulated cage (synthetic cameras + simulated Arduino).
 
+    `n_cameras`: that many synthetic cameras (cam0, cam1, …); by default the rig's own when they are all synthetic,
+    else one. Cameras added in the simulation's Video settings are kept apart from the rig's (sessions/_sim_video.yaml).
     With two synthetic cameras or more, the cage is 3D and each camera sees it from its own place (SimScene3D); its
     ROIs and camera calibration are kept apart from the one-camera simulation's (sessions/_sim3d_*)."""
     from .sim import RfidModel, SimulatedArduino, SimWorld
@@ -651,11 +658,20 @@ def simulation_controller(rig: dict, duration_s: float = 3600, seed: int = 0) ->
     world = SimWorld.random(tags.pigeons, {p: tags.color(p) for p in tags.pigeons}, duration_s, seed,
                             mean_dwell_s=12, mean_away_s=8)
     rig = dict(rig)
-    if not rig["cameras"] or any(c.get("backend") != "synthetic" for c in rig["cameras"]):
+    sim_dir = resolve_path(rig["paths"]["sessions_dir"])
+    if n_cameras:
+        rig["cameras"] = [{"id": f"cam{k}", "backend": "synthetic", "fps": 30} for k in range(int(n_cameras))]
+    elif not rig["cameras"] or any(c.get("backend") != "synthetic" for c in rig["cameras"]):
         rig["cameras"] = [{"id": "cam0", "backend": "synthetic", "fps": 30}]
+    else:
+        rig["cameras"] = [dict(c) for c in rig["cameras"]]
+    sim_video = sim_dir / "_sim_video.yaml"  # the simulation's Video settings, never the rig's config/video.yaml
+    vs = VideoSettings.load(sim_video)
+    vs.added = [] if n_cameras else [c for c in vs.added if c.get("backend") == "synthetic"]
+    rig["video"] = copy.deepcopy(rig.get("video") or {})
+    vs.apply(rig)
     rig["rfid"] = {**rig["rfid"], "port": "SIM"}
     rig["audio"] = {**rig["audio"], "host_api": "sim", "device": "simulated"}
-    sim_dir = resolve_path(rig["paths"]["sessions_dir"])
     if len(rig["cameras"]) >= 2:  # several cameras see one cage in 3D, each from its own place
         from .video.calibration import BoardSpec
         from .video.extrinsics import SimulatedRig
@@ -670,7 +686,8 @@ def simulation_controller(rig: dict, duration_s: float = 3600, seed: int = 0) ->
         rois = RoiSet.load(rig["paths"]["rois_file"])
     if not rois.rois or rois.image_size != tuple(world.image_size):
         rois = world.roi_set(rig["antennas"])
-    rig["paths"] = {**rig["paths"], "rois_file": str(rois_file), "calibration_file": str(cal_file)}
+    rig["paths"] = {**rig["paths"], "rois_file": str(rois_file), "calibration_file": str(cal_file),
+                    "video_settings_file": str(sim_video)}
     ctl = AcquisitionController(rig, tags, rois)
     ctl.world = world
     ctl._sim_source = SimulatedArduino(world, tags, RfidModel(boot_offset_s=0.0))

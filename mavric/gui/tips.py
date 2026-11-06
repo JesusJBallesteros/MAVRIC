@@ -15,6 +15,8 @@ ACQUIRE = {
     "Connect RFID": "Open the RFID Arduino on the selected port (the board resets, about 2 s). Click again to "
                     "disconnect.",
     "Connect camera": "Open the camera chosen on the left and start its live view. Click again to disconnect.",
+    "Connect all cameras": "Open every camera of the rig that is not connected yet, in rig.yaml's order; then View: "
+                           "All cameras shows them side by side",
     "Connect audio": "Open the audio interface set in rig.yaml (audio:): level meters, sync pulse count, "
                      "spectrograms, recording, and the Soundboard when speakers are configured",
     "Calibrate cameras…": "Calibrate each camera's lens, then where all cameras are, with the ChArUco board (and "
@@ -192,6 +194,9 @@ OUTPUTS = {
 }
 
 VIDEO = {
+    "Add camera…": "Add a camera to the rig (e.g. a third camera): pick it by serial number from the cameras on this "
+                   "PC; saved in config/video.yaml",
+    "Remove camera": "Remove a camera added here (cameras listed in rig.yaml are removed there)",
     "Apply to camera (reconnects if needed)": "Use these settings now; size, frame rate and pixel format reconnect "
                                               "the camera",
     "Format": "Raw keeps every frame lossless (compress later); H.264 compresses while recording",
@@ -208,6 +213,20 @@ VIDEO = {
     "Show ffmpeg commands": "The equivalent ffmpeg command lines, to run by hand",
     "Overwrite existing _compressed files": "Redo files that already exist",
     "triggered clips": "Also compress the RFID-triggered clips",
+}
+
+
+ADD_CAMERA = {
+    "Camera id": "The camera's name in file names (cam2_raw_000.mkv, frames_cam2.csv); cam0, cam1, … by default",
+    "Backend": "flir: FLIR / Point Grey through Spinnaker (Chameleon3, Blackfly S); basler: pylon; opencv: a webcam; "
+               "file: a video file; synthetic: the simulated cage",
+    "Device": "flir / basler: the camera's serial number (Find cameras lists them, with the ones the rig already "
+              "uses); opencv: its index; file: the video's path",
+    "Find cameras": "List the FLIR / Basler cameras connected to this PC (close SpinView and pylon Viewer first)",
+    "Recording": "continuous: the whole session; triggered: only the RFID-triggered clips of the Camera clips rules",
+    "Frame trigger": "Expose on each pulse at the camera's trigger input, together with every other frame-triggered "
+                     "camera (wire it to the MEGA's D46 like the others): needed to see the birds in 3D",
+    "Add": "Add the camera to the rig (config/video.yaml)",
 }
 
 

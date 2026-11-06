@@ -71,6 +71,7 @@ microphones, speakers and the sync pulse.
 
 ```bash
 mavric acquire --sim                         # live window with the simulated cage
+mavric acquire --sim --cameras 3             # the same, filmed by three cameras
 mavric simulate sessions --audio             # write a complete simulated session (with ground truth)
 mavric review sessions/<that session>        # label it
 mavric analyze sessions/<that session>       # sync check and RFID vs labels
@@ -103,7 +104,7 @@ mavric acquire
 
 | | Control | What to do |
 |---|---|---|
-| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*. *Connect audio* if used. *View* picks the camera shown. *Calibration* lists the cameras calibrated ([below](#calibrate-the-cameras)). *Position* says whether each camera is still where it was; *Alignment overlay* helps put it back ([below](#did-a-camera-move)). |
+| 1 | **Devices** | Pick the RFID port and *Connect RFID*. Pick each camera and *Connect camera*, or *Connect all cameras*. *Connect audio* if used. *View* picks the camera shown. *Calibration* lists the cameras calibrated ([below](#calibrate-the-cameras)). *Position* says whether each camera is still where it was; *Alignment overlay* helps put it back ([below](#did-a-camera-move)). |
 | 2 | **Audio inputs** | Level per input, with a red CLIP warning, and a counter of the sync pulses received. |
 | 3 | **Soundboard** | With speakers configured: play any sound from the library on any speaker, by hand ([§2](#2-sounds-outputs-and-camera-clips)). |
 | 4 | **ROIs and LED** | Once per setup, on the first camera: each place's button (*1 PlaceA*, …) draws its ROI, whose corners you drag onto the place; *LED box* goes over the sync LED; then *Save ROIs to rig*. |
@@ -112,7 +113,7 @@ mavric acquire
 | 7 | **Outputs** | Nothing fires until *Arm outputs*. Devices, rules and camera clips are set up in *Settings → Outputs…*. |
 | 8 | **Live view** | A place ROI takes the subject's colour while its antenna reads the tag. |
 | 9 | **Spectrograms** | The last 10 s of each microphone. |
-| 10 | **Menus** | **Settings:** *Video settings…* (exposure, gain, size, recording format), *Calibrate cameras…* ([below](#calibrate-the-cameras)), *Outputs…*. **Panels:** show a hidden panel, open or collapse them all, the default arrangement. **Help:** the basics, this manual, the version and the licence. |
+| 10 | **Menus** | **Settings:** *Video settings…* (exposure, gain, size, recording format; *Add camera…*), *Calibrate cameras…* ([below](#calibrate-the-cameras)), *Outputs…*. **Panels:** show a hidden panel, open or collapse them all, the default arrangement. **Help:** the basics, this manual, the version and the licence. |
 | 11 | **Status** | RFID line rate, the frame trigger, each camera's frame rate and drops, recording, clips, audio. |
 
 Every control explains itself when you hover over it.
