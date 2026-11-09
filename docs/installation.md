@@ -275,12 +275,14 @@ on this PC.
 
 | File | Set |
 |---|---|
-| `rig.yaml` | `rfid.port` (COM port of the MEGA, or `auto`), `antennas` (reader number → place name), `cameras` (backend `flir`, serial number, fps, `record: continuous` or `triggered`), `audio` (device `MOTU`, `host_api: ASIO`, inputs with the sync input, speakers, `enabled`), `paths.sessions_dir` |
+| `rig.yaml` | `rfid.port` (COM port of the MEGA, or `auto`), `antennas` (reader number → place name), `cameras` (backend `flir`, serial number, fps, `record: continuous` or `triggered`), `audio` (device `MOTU`, `host_api: ASIO`, inputs with the sync input, speakers, `enabled`), `paths.sessions_dir`, `paths.archive_dir` |
 | `tags.csv` | one row per tag: `tag_id,subject,color` |
 | `outputs.yaml` | I/O Arduino port, rules and camera clips (easier from the acquire window: *Settings → Outputs…*) |
 | `sounds\` | stimuli to play on the speakers (WAV/FLAC, ideally 48 kHz mono); create the folder if you play sounds |
 
-- **Recordings on the data drive:** in `rig.yaml`, set `paths: sessions_dir: D:\MAVRIC_sessions`.
+- **Where recordings go:** record on a fast drive (an SSD): in `rig.yaml`, `paths: sessions_dir:
+  D:\MAVRIC_sessions`. Keep them on a big drive or a share with `archive_dir: E:\MAVRIC_archive`: each session moves
+  there after Stop, every file checked. *Settings → Storage…* in the acquire window sets both.
 - **Camera serials:** shown by `mavric ports` and in SpinView.
 - **Run `mavric` from any folder** (optional):
   ```bash

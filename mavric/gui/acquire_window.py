@@ -3,8 +3,10 @@ recording."""
 
 from __future__ import annotations
 
+import html
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -270,12 +272,19 @@ class AcquireWindow(QtWidgets.QMainWindow):
         self.b_rec.clicked.connect(self._toggle_record)
         self.rec_label = QtWidgets.QLabel("not recording")
         self.rec_label.setWordWrap(True)
+        self.archive_label = QtWidgets.QLabel("")  # moving finished sessions to the archive folder
+        self.archive_label.setWordWrap(True)
+        self.archive_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        self._archive_txt = None
+        self._archive_seen = 0
+        self._saved_path = None  # the last session stopped here, while it is in the recording folder
         f.addWidget(QtWidgets.QLabel("Name"), 0, 0)
         f.addWidget(self.name_edit, 0, 1)
         f.addWidget(QtWidgets.QLabel("Notes"), 1, 0)
         f.addWidget(self.notes_edit, 1, 1)
         f.addWidget(self.b_rec, 2, 0, 1, 2)
         f.addWidget(self.rec_label, 3, 0, 1, 2)
+        f.addWidget(self.archive_label, 4, 0, 1, 2)
         self._panel("recording", w)
 
         # event-driven outputs (set up in Settings → Outputs…)
@@ -345,7 +354,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
         mb = self.menuBar()
         m = mb.addMenu("Settings")
         m.setToolTipsVisible(True)
-        for text, fn in (("Video settings…", self._open_video_settings),
+        for text, fn in (("Video settings…", self._open_video_settings), ("Storage…", self._open_storage),
                          ("Calibrate cameras…", self._open_calibration), ("Outputs…", self._open_outputs)):
             a = m.addAction(text)
             a.triggered.connect(fn)
@@ -526,6 +535,46 @@ class AcquireWindow(QtWidgets.QMainWindow):
         from .video_dialogs import VideoSettingsDialog
 
         VideoSettingsDialog(self).exec()
+
+    def _open_storage(self) -> None:
+        from .storage_dialog import StorageDialog
+
+        StorageDialog(self).exec()
+
+    def update_archive_label(self, force: bool = False) -> None:
+        """The Recording panel's line on moving sessions to the archive folder."""
+        a = self.ctl.archiver.status()
+        s = self.ctl.archive_settings
+        cur, last = a["current"], a["last"]
+        if a["n_results"] > self._archive_seen:  # a session finished moving
+            self._archive_seen = a["n_results"]
+            if last and not last.get("error") and self._saved_path and Path(self._saved_path).name == last["session"]:
+                if last["local"] == "deleted":
+                    self.rec_label.setText(f"saved: {last['to']}")
+                    cb = QtWidgets.QApplication.clipboard()
+                    if cb.text() == self._saved_path:
+                        cb.setText(last["to"])
+                    self._saved_path = None
+        if cur:
+            pct = f"{cur['done'] / cur['total']:.0%}" if cur["total"] else "starting"
+            txt = (f"archive: moving {cur['session']}: {pct}"
+                   + (f" ({len(a['queued'])} more waiting)" if a["queued"] else ""))
+        elif last and last.get("error") and not last.get("stopped"):
+            txt = (f"<span style='color:#c0392b'>archive: {html.escape(last['session'])} NOT moved: "
+                   f"{html.escape(last['error'])}. It stays in the recording folder (Settings → Storage…)</span>")
+        elif last and not last.get("error"):
+            txt = (f"archive: {last['session']} moved to {html.escape(last['to'])}, every file checked"
+                   + (f"; changed after the copy, kept here: {html.escape(', '.join(last['kept']))}"
+                      if last.get("kept") else ""))
+        elif s["dir"]:
+            txt = (f"archive: each session moves to {html.escape(s['dir'])} after Stop" if s["after_stop"] else
+                   f"archive folder {html.escape(s['dir'])}: move sessions with Settings → Storage…")
+        else:
+            txt = ""
+        if txt != self._archive_txt or force:
+            self._archive_txt = txt
+            self.archive_label.setText(f"<small>{txt}</small>" if txt else "")
+            self.archive_label.setVisible(bool(txt))
 
     def _open_calibration(self) -> None:
         if not self.ctl.cams:
@@ -904,7 +953,9 @@ class AcquireWindow(QtWidgets.QMainWindow):
                                                             "&lt;session&gt;</code></small>" if raw else ""))
             self._set_devices_enabled(True)
             QtWidgets.QApplication.clipboard().setText(str(sess.path))
+            self._saved_path = str(sess.path)  # once moved to the archive, the label and clipboard follow it
             self.statusBar().showMessage("Recording stopped (path copied to clipboard)", 6000)
+            self.update_archive_label()
             return
         if self.ctl.rfid is None and not self.ctl.cams and self.ctl.audio is None:
             message(self, "Nothing to record", "Connect the RFID reader, a camera or the audio interface first.")
@@ -983,6 +1034,7 @@ class AcquireWindow(QtWidgets.QMainWindow):
             self.table.item(i, 3).setText(f"{t - since:.1f}" if (tag and since) else "")
 
         self._update_audio()
+        self.update_archive_label()
         parts = []
         if "rfid" in st:
             r = st["rfid"]
@@ -1144,6 +1196,16 @@ class AcquireWindow(QtWidgets.QMainWindow):
     def closeEvent(self, ev: QtGui.QCloseEvent) -> None:
         if self.ctl.recording:
             r = QtWidgets.QMessageBox.question(self, "Recording", "Stop the recording and quit?")
+            if r != QtWidgets.QMessageBox.StandardButton.Yes:
+                ev.ignore()
+                return
+        cur = self.ctl.archiver.status()["current"]
+        if cur:
+            pct = f" ({cur['done'] / cur['total']:.0%} done)" if cur["total"] else ""
+            r = QtWidgets.QMessageBox.question(
+                self, "Archive", f"{cur['session']} is being moved to the archive folder{pct}. Quit anyway? The copy "
+                "stops and resumes after the next Stop, from Settings → Storage…, or with mavric archive --all; "
+                "the session stays in the recording folder until then.")
             if r != QtWidgets.QMessageBox.StandardButton.Yes:
                 ev.ignore()
                 return

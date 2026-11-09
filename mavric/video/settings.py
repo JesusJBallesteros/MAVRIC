@@ -12,6 +12,11 @@ loaded (rig.yaml keeps its comments; the GUI never rewrites it)::
       raw_codec: ffv1     # ffv1 (lossless, ~2x smaller) | rawvideo (uncompressed)
       raw_chunk_mb: 2000
       compress: {codec: libx264, crf: 18, preset: medium, gop: 30}
+    storage:              # Settings → Storage…: over rig.yaml's paths and archive
+      sessions_dir: D:/MAVRIC_sessions    # record here (a fast drive)
+      archive_dir: E:/MAVRIC_archive      # then move each session here ("" = they stay)
+      after_stop: true
+      keep_local: false
 
 Each backend exposes the parameters it can set; `live` ones change while
 the camera streams, the rest need a reconnect.
@@ -25,7 +30,7 @@ from pathlib import Path
 
 import yaml
 
-from ..config import read_yaml
+from ..config import read_yaml, resolve_path
 
 
 @dataclass(frozen=True)
@@ -131,6 +136,7 @@ class VideoSettings:
     cameras: dict[str, dict] = field(default_factory=dict)
     video: dict = field(default_factory=dict)
     added: list[dict] = field(default_factory=list)  # cameras added in the GUI, after rig.yaml's own
+    storage: dict = field(default_factory=dict)  # recording and archive folders (Settings → Storage…)
 
     @classmethod
     def load(cls, path: str | Path) -> "VideoSettings":
@@ -140,7 +146,7 @@ class VideoSettings:
         d = read_yaml(p)
         added = [dict(c) for c in (d.get("added_cameras") or []) if isinstance(c, dict) and c.get("id")]
         return cls({str(k): dict(v or {}) for k, v in (d.get("cameras") or {}).items()}, dict(d.get("video") or {}),
-                   added)
+                   added, dict(d.get("storage") or {}))
 
     def save(self, path: str | Path) -> None:
         p = Path(path)
@@ -149,8 +155,10 @@ class VideoSettings:
         if self.added:
             d["added_cameras"] = self.added
         d["video"] = self.video
+        if self.storage:
+            d["storage"] = self.storage
         with open(p, "w", encoding="utf-8") as f:
-            f.write("# Camera and recording settings from the acquire GUI (Video settings...).\n"
+            f.write("# Camera, recording and storage settings from the acquire GUI (Video settings..., Storage...).\n"
                     "# Merged over config/rig.yaml when the rig is loaded; added_cameras come after rig.yaml's.\n")
             yaml.safe_dump(d, f, sort_keys=False, allow_unicode=True)
 
@@ -175,6 +183,15 @@ class VideoSettings:
                 video[k] = {**video[k], **v}
             else:
                 video[k] = copy.deepcopy(v)
+        st = self.storage
+        root = Path(rig["_root"]) if rig.get("_root") else None
+        paths = rig.setdefault("paths", {})
+        if st.get("sessions_dir"):
+            paths["sessions_dir"] = str(resolve_path(st["sessions_dir"], root))
+        if "archive_dir" in st:
+            paths["archive_dir"] = str(resolve_path(st["archive_dir"], root)) if st["archive_dir"] else ""
+        arch = rig.setdefault("archive", {})
+        arch.update({k: bool(st[k]) for k in ("after_stop", "keep_local") if k in st})
         return rig
 
 

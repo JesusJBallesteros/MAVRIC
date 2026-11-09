@@ -22,6 +22,7 @@ with two microphones and four speakers.
 | Render | Annotated video (ROIs, RFID ID, label, disagreements; the sound and a spectrogram strip) | `mavric render <session>` |
 | Timeline | Audio on the video's clock and Audacity label tracks, for Audacity, Ethograph and BORIS | `mavric timeline <session>` |
 | Compress | H.264 copies of the raw video, every frame kept, for sharing and DeepLabCut | `mavric compress <session>` |
+| Archive | Record on a fast drive; each finished session moves to a big one, every file checked | acquire → **Settings → Storage…**, `mavric archive` |
 | BORIS stopgap | Use BORIS labels as ground truth | `mavric import-boris <session> <export.tsv>` |
 | Triggered clips | Record video only while RFID detects a tag (any camera, incl. ones not used for ID) | acquire → **Settings → Outputs…** → Camera clips |
 | Outputs | Drive TTL lines (Intan, LEDs, relays), Intan RHX, MATLAB, programs, network messages or sounds from RFID events | acquire → **Settings → Outputs…**, `mavric outputs` |
@@ -535,6 +536,55 @@ Sources:
 - [DLC user guide](https://deeplabcut.github.io/DeepLabCut/docs/main-workflows/user-guide.html)
 - [Mathis & Warren 2018](https://www.biorxiv.org/content/10.1101/457242v1.full-text): robust to video compression and
   downsampling
+
+### Storage: record on a fast drive, keep on a big one
+
+Three cameras recording raw (FFV1) write about 45 MB/s, 150–170 GB per hour. The recording drive must keep up
+without pauses: each camera's recorder holds about 5 s of frames, and longer stalls drop frames (counted as
+*recorder drops* in the sync check). An SSD keeps up. These risk drops:
+- SMR ("shingled") hard disks, which slow down during long writes;
+- portable USB disks and network shares;
+- a hard disk that also copies, compresses or backs up during the session.
+
+**Settings → Storage… (acquire window).**
+- **Recording folder** (`paths.sessions_dir`): where sessions are written, with its free space in hours of raw video.
+- **Archive folder** (`paths.archive_dir`): where finished sessions are moved: a big hard disk, a NAS or a server
+  share. Empty: sessions stay where they were recorded.
+- **Move each session here after Stop** (`archive.after_stop`, on): the move starts when a session stops, in the
+  background. The next recording can start meanwhile.
+- **Keep the copy in the recording folder too** (`archive.keep_local`, off): copy only, e.g. to compress there first.
+- **Sessions in the recording folder:** each with its size and archive state. *Archive selected* and *Archive all
+  waiting* move them now.
+
+*Save* writes `config/video.yaml` (`storage:`), over `rig.yaml`. The *Recording* panel shows the move's progress, and
+quitting during a move asks first.
+
+**How a session moves.**
+1. Each file is copied to `<archive>/<session>.partial/`; its SHA-256 is taken while reading.
+2. The copy is read back and its SHA-256 compared. A file that changed while it was copied is copied again.
+3. `archive.json` lists every file with its size, time stamp and SHA-256. The folder is renamed to
+   `<archive>/<session>/`.
+4. Only then are the files deleted from the recording folder. A file changed after it was copied stays there, with
+   `session.json`, and moves the next time.
+
+- **Disk priority:** the copy uses Windows' background disk priority, so the recording's writes go first.
+- **Free space:** checked before copying. A full archive drive stops the move, and nothing is deleted.
+- **Interrupted:** a copy stopped half-way (quit, power cut, drive unplugged) keeps the files already checked. It
+  resumes after the next Stop, from *Storage…*, or with `mavric archive --all`.
+- **Opening moved sessions:** `session.json` names its files relative to its folder, so `mavric review`, `analyze`,
+  `render` and `compress` open an archived session where it is.
+- **Unfinished sessions** (no stop time: the program crashed) stay; `mavric archive --unfinished` moves them.
+- **Headless:** `mavric acquire --headless` moves the session before it ends.
+- **Simulation:** simulated sessions go to an archive only when the simulation's own *Storage…* sets one
+  (`sessions/_sim_video.yaml`).
+
+```bash
+mavric archive                       # each session of the recording folder, and whether it is archived
+mavric archive --all                 # move every waiting session
+mavric archive <session>             # move one (a folder, or a name in the recording folder)
+mavric archive --all --keep-local    # copy only
+mavric archive --all --to E:/MAVRIC_archive
+```
 
 ### RFID-triggered clips (optional)
 
@@ -1053,6 +1103,7 @@ sessions/<YYYYmmdd_HHMMSS>_<name>/
   analysis/           analyze, render, timeline and sound tools (sync_report.json, summary.json, tables, plots,
                       audio_time_knots.csv, sound_events_linked.csv, call_rates.csv, playback_*.csv,
                       sound_proposals.csv, annotated_<cam>.mp4, timeline/, audio_envelope.npz cache)
+  archive.json        in the archive folder only: every file's size, time stamp and SHA-256, and where it came from
 ```
 
 All times are seconds since session start. Everything is plain CSV/JSON, so MATLAB reads it directly

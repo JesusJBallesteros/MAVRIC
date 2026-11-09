@@ -117,10 +117,16 @@ calibration:
     dictionary: DICT_4X4_50
 
 paths:
-  sessions_dir: sessions
+  sessions_dir: sessions   # sessions are recorded here: a fast drive (an SSD), e.g. D:/MAVRIC_sessions
+  archive_dir: ""          # then moved here after Stop, every file checked: a big drive or a share,
+                           # e.g. E:/MAVRIC_archive ("" = they stay). Acquire GUI: Settings -> Storage...
   tags_file: config/tags.csv
   rois_file: config/rois.json
   outputs_file: config/outputs.yaml   # event-driven outputs (acquire GUI: Outputs...)
   sound_types_file: config/sound_types.yaml  # sound event types (review GUI: Sound events -> Types...)
   calibration_file: config/calibration.yaml  # camera calibration (acquire GUI: Calibrate cameras...)
   gui_layout_file: config/gui_layout.ini     # the acquire window's panels as last arranged (saved on closing)
+
+archive:                   # moving sessions to paths.archive_dir (also: mavric archive)
+  after_stop: true         # each session as soon as it stops, in the background
+  keep_local: false        # true: copy only; the session stays in sessions_dir too

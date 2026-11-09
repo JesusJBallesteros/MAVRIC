@@ -77,7 +77,7 @@ def test_acquire_panels_menus_and_saved_arrangement(app, tmp_path):
     ctl = simulation_controller(rig, seed=1)
     win = AcquireWindow(ctl, sim=True)
     menus = {a.text(): [b.text() for b in a.menu().actions() if b.text()] for a in win.menuBar().actions()}
-    assert menus["Settings"] == ["Video settings…", "Calibrate cameras…", "Outputs…"]
+    assert menus["Settings"] == ["Video settings…", "Storage…", "Calibrate cameras…", "Outputs…"]
     assert menus["Help"] == ["The basics", "Manual (README)", "About MAVRIC"]
     assert [PANELS[n][0] for n in win.panels] == menus["Panels"][:len(PANELS)]
     assert not win.panels["audio"].toggleViewAction().isEnabled()  # until audio connects

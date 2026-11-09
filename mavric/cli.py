@@ -62,14 +62,89 @@ def cmd_acquire(args):
                     errs += [au.get("error"), au.get("rec_error")]
                 if any(errs):
                     print("  ERROR:", [e for e in errs if e])
+            n0 = len(ctl.archiver.results)
             sess = ctl.stop_recording()
             print(json.dumps(sess.meta["stats"], indent=2))
+            _wait_for_archive(ctl.archiver, n0)
         finally:
             ctl.shutdown()
         return
     from .gui.acquire_window import main as gui_main
 
     gui_main(rig, sim=args.sim, n_cameras=args.cameras)
+
+
+def _gb(n: float) -> str:
+    return f"{n / 1e9:.1f} GB" if n >= 1e8 else f"{n / 1e6:.0f} MB"
+
+
+def _archive_line(r: dict) -> str:
+    if r.get("error"):
+        return f"  {r['session']}: NOT moved: {r['error']}"
+    local = {"deleted": "removed from the recording folder", "kept": "local copy kept",
+             "partly kept": f"kept locally (changed after the copy): {', '.join(r['kept'])}"}[r["local"]]
+    return (f"  {r['session']}: {r['files']} files checked in {r['to']} ({r['copied']} copied, {_gb(r['bytes'])}, "
+            f"{r['seconds']:.0f} s); {local}")
+
+
+def _wait_for_archive(archiver, n0: int) -> None:
+    """Headless: the session just stopped is moved before the program ends (Ctrl+C stops; it resumes later)."""
+    while archiver.busy:
+        st = archiver.status()
+        cur = st["current"]
+        if cur and cur["total"]:
+            print(f"\r  archiving {cur['session']}: {cur['done'] / cur['total']:.0%}", end="", flush=True)
+        time.sleep(1)
+    for r in archiver.results[n0:]:
+        print("\r" + _archive_line(r))
+
+
+def cmd_archive(args):
+    """Move finished sessions from the recording folder to the archive folder, each file checked."""
+    from .archive import ArchiveError, archive_session, local_sessions, session_size, state
+
+    rig = _rig(args)
+    root = args.to or rig["paths"].get("archive_dir") or ""
+    keep = args.keep_local or bool((rig.get("archive") or {}).get("keep_local"))
+    rec_dir = Path(rig["paths"]["sessions_dir"])
+    if not args.sessions and not args.all:
+        sessions = local_sessions(rec_dir)
+        print(f"recording folder: {rec_dir}")
+        print(f"archive folder:   {root or '(none: rig.yaml paths.archive_dir, Settings → Storage…, or --to)'}")
+        for p in sessions:
+            print(f"  {p.name:40s} {_gb(session_size(p)):>9s}  {state(p, root)}")
+        if not sessions:
+            print("  (no sessions)")
+        elif root:
+            print("mavric archive --all moves every waiting session; mavric archive <session> moves one")
+        return 0
+    if not root:
+        print("no archive folder: set paths.archive_dir in rig.yaml (or Settings → Storage… in the acquire "
+              "window), or pass --to")
+        return 2
+    if args.sessions:
+        sessions = [Path(s) if Path(s).is_dir() else rec_dir / s for s in args.sessions]
+    else:
+        sessions = [p for p in local_sessions(rec_dir)
+                    if state(p, root) in ("waiting", "partly copied", "changed since archived")
+                    or (args.unfinished and state(p, root) == "unfinished")]
+        if not sessions:
+            print("nothing to move")
+            return 0
+    print(f"moving {len(sessions)} session(s) to {root}" + (" (keeping the local copies)" if keep else ""))
+    failed = 0
+    for p in sessions:
+        def progress(info, name=p.name):
+            if info["total"]:
+                print(f"\r  {name}: {info['done'] / info['total']:.0%}", end="", flush=True)
+
+        try:
+            r = archive_session(p, root, keep, progress, unfinished=args.unfinished)
+        except ArchiveError as e:
+            r = {"session": p.name, "error": str(e)}
+            failed += 1
+        print("\r" + _archive_line(r))
+    return 1 if failed else 0
 
 
 def cmd_review(args):
@@ -897,6 +972,16 @@ def main(argv=None):
     cp.add_argument("--overwrite", action="store_true")
     cp.add_argument("--print-ffmpeg", action="store_true", help="only print the equivalent ffmpeg commands")
     cp.set_defaults(fn=cmd_compress)
+
+    ar = sub.add_parser("archive", help="move finished sessions to the archive folder (each file checked); "
+                                         "no arguments: list them")
+    ar.add_argument("sessions", nargs="*", help="session folders (or names in the recording folder)")
+    ar.add_argument("--all", action="store_true", help="every session of the recording folder not archived yet")
+    ar.add_argument("--to", default=None, help="archive folder (default: rig.yaml paths.archive_dir)")
+    ar.add_argument("--keep-local", action="store_true", help="copy only: keep them in the recording folder too")
+    ar.add_argument("--unfinished", action="store_true",
+                    help="also sessions without a stop time (the program crashed while recording)")
+    ar.set_defaults(fn=cmd_archive)
 
     st = sub.add_parser("selftest", help="run the test suite (works from any folder); extra args go to pytest")
     st.set_defaults(fn=cmd_selftest)

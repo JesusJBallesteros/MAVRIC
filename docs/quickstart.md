@@ -74,7 +74,10 @@ conda env config vars set MAVRIC_ROOT=C:\Code\MAVRIC
 Then run `conda deactivate` and `conda activate mavric`.
 
 **Other options**
-- **Sessions on a data drive:** set `paths: sessions_dir: D:\MAVRIC_sessions` in `rig.yaml`.
+- **Where sessions go:** record on a fast drive (an SSD): `paths: sessions_dir: D:\MAVRIC_sessions` in `rig.yaml`.
+  To keep them on a big drive, add `archive_dir: E:\MAVRIC_archive`: each session moves there after Stop, every
+  file checked. *Settings → Storage…* in the acquire window sets both
+  ([reference](reference.md#storage-record-on-a-fast-drive-keep-on-a-big-one)).
 - **A second rig on the same PC:** keep a second rig file and pass it with `--rig`, e.g.
   `mavric --rig config/rig_b.yaml acquire`.
 - **Moving to a new PC:** copy `config/*.yaml`, `config/tags.csv`, `config/rois.json` and `sounds/`. Then check the
@@ -199,8 +202,16 @@ audio:
 
 | Key | Default |
 |---|---|
-| `sessions_dir` | `sessions` (relative to the project folder, or an absolute path) |
+| `sessions_dir` | `sessions` (relative to the project folder, or an absolute path). A fast drive: sessions are recorded here |
+| `archive_dir` | empty: sessions stay in `sessions_dir`. A folder on a big drive, a NAS or a share: each finished session is moved there, every file checked ([reference](reference.md#storage-record-on-a-fast-drive-keep-on-a-big-one)) |
 | `tags_file`, `rois_file`, `outputs_file`, `sound_types_file`, `calibration_file` | the files in `config/` |
+
+**`archive`**
+
+| Key | Default |
+|---|---|
+| `after_stop` | `true`: each session moves to `paths.archive_dir` as soon as it stops, in the background |
+| `keep_local` | `false`; `true` copies only, and the session stays in `sessions_dir` too |
 
 ### 3.2 `tags.csv`: who is who
 
@@ -356,7 +367,8 @@ Every device has a simulated twin, for learning and testing:
 ## 5. Recording a session
 
 **Before the session**
-- Disk space: about 50 GB per camera-hour of raw video.
+- Disk space: about 50 GB per camera-hour of raw video, on a fast drive (an SSD). With an archive folder set,
+  sessions move off it after each Stop.
 - Sounds: the files you need are in `sounds/` (*↻ sounds* reloads them).
 - Outputs: the rules are saved and tested.
 
@@ -372,7 +384,8 @@ Every device has a simulated twin, for learning and testing:
 4. **Arm outputs**, if you use them.
 5. **Record:** enter a session name and notes, then *● Start recording*. Every stream is written to disk as it
    arrives, so a crash keeps everything up to the last second.
-6. **Stop:** *■ Stop recording*. The session folder is complete.
+6. **Stop:** *■ Stop recording*. The session folder is complete. With an archive folder set, it then moves there;
+   the *Recording* panel shows the progress.
 
 **Without the window** (e.g. scheduled recordings):
 
@@ -438,6 +451,7 @@ sessions/20261029_101500_demo/
 |---|---|
 | `analysis/` | `sync_summary.txt` and `sync_report.json` (the sync check **PASS**/FAIL, in words and in numbers), `camera_positions.json` (did a camera move), `summary.json`, RFID bouts, RFID vs labels, time budgets, plots, `audio_time_knots.csv` (audio sample → session time), sounds linked to places (`sound_events_linked.csv`, `call_rates.csv`, `playback_responses.csv`, `playback_by_subject.csv`), `sound_proposals.csv`, `annotated_<cam>.mp4`, `timeline/` ([reference](reference.md#3-analyze-mavric-analyze-session)) |
 | `<cam>_compressed.mp4` | The H.264 copy from `mavric compress` (every frame, constant rate) |
+| `archive.json` | In the archive folder only: every file's size, time stamp and SHA-256, checked when the session was moved there |
 
 The `pigeon` column name in the label and analysis tables is historical; it holds the subject name from `tags.csv`.
 

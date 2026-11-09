@@ -24,6 +24,8 @@ ACQUIRE = {
                           "camera shows the places; then the microphones and speakers, checked by sound",
     "Video settings…": "Frame rate, exposure, gain, brightness, image size and recording format per camera; "
                        "compression defaults",
+    "Storage…": "Where sessions are recorded (a fast drive), and the archive folder each session is moved to after "
+                "Stop (a big drive or a share), every file checked",
     "Alignment overlay": "Draw the shown camera's reference view as magenta outlines on the live picture, with an "
                          "arrow when it moved: turn the camera until the picture meets the outlines",
     "New reference": "Make the shown camera's view now (every camera's, in All cameras) its reference view: only "
@@ -213,6 +215,21 @@ VIDEO = {
     "Show ffmpeg commands": "The equivalent ffmpeg command lines, to run by hand",
     "Overwrite existing _compressed files": "Redo files that already exist",
     "triggered clips": "Also compress the RFID-triggered clips",
+}
+
+
+STORAGE = {
+    "Recording folder": "Sessions are written here while recording: a fast drive (an SSD), so frames are never "
+                        "dropped because the disk fell behind",
+    "Archive folder": "Finished sessions are moved here (a big hard disk, a NAS or a server share); empty = they "
+                      "stay in the recording folder",
+    "Move each session here after Stop": "Start moving a session as soon as it stops, in the background; the next "
+                                         "recording can start meanwhile",
+    "Keep the copy in the recording folder too": "Copy only: the session stays in the recording folder as well "
+                                                 "(e.g. to compress it there first)",
+    "Archive selected": "Move the selected sessions now",
+    "Archive all waiting": "Move every finished session of the recording folder that is not in the archive yet",
+    "Save": "Save to config/video.yaml (over rig.yaml's paths.sessions_dir, paths.archive_dir and archive:)",
 }
 
 

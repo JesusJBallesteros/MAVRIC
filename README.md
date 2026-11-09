@@ -109,11 +109,11 @@ mavric acquire
 | 3 | **Soundboard** | With speakers configured: play any sound from the library on any speaker, by hand ([§2](#2-sounds-outputs-and-camera-clips)). |
 | 4 | **ROIs and LED** | Once per setup, on the first camera: each place's button (*1 PlaceA*, …) draws its ROI, whose corners you drag onto the place; *LED box* goes over the sync LED; then *Save ROIs to rig*. |
 | 5 | **Live RFID** | The tag at each place and for how long; arrivals and departures below. |
-| 6 | **Recording** | Name and notes, then *Start recording*. Everything goes to `sessions/<date>_<name>/`. |
+| 6 | **Recording** | Name and notes, then *Start recording*. Everything goes to `sessions/<date>_<name>/`, or to the recording folder set in *Settings → Storage…*. With an archive folder set, each session then moves there ([Storage](#storage)). |
 | 7 | **Outputs** | Nothing fires until *Arm outputs*. Devices, rules and camera clips are set up in *Settings → Outputs…*. |
 | 8 | **Live view** | A place ROI takes the subject's colour while its antenna reads the tag. |
 | 9 | **Spectrograms** | The last 10 s of each microphone. |
-| 10 | **Menus** | **Settings:** *Video settings…* (exposure, gain, size, recording format; *Add camera…*), *Calibrate cameras…* ([below](#calibrate-the-cameras)), *Outputs…*. **Panels:** show a hidden panel, open or collapse them all, the default arrangement. **Help:** the basics, this manual, the version and the licence. |
+| 10 | **Menus** | **Settings:** *Video settings…* (exposure, gain, size, recording format; *Add camera…*), *Storage…* (recording and archive folders), *Calibrate cameras…* ([below](#calibrate-the-cameras)), *Outputs…*. **Panels:** show a hidden panel, open or collapse them all, the default arrangement. **Help:** the basics, this manual, the version and the licence. |
 | 11 | **Status** | RFID line rate, the frame trigger, each camera's frame rate and drops, recording, clips, audio. |
 
 Every control explains itself when you hover over it.
@@ -152,6 +152,17 @@ Wiring: [docs/wiring.md §5.3](docs/wiring.md#53-frame-trigger-from-d46-pins-9--
 
 **Recording without the window** (e.g. scheduled): `mavric acquire --headless --duration 3600 --name night01`.
 Add `--audio` and `--arm-outputs` as needed.
+
+### Storage
+
+Record on a fast drive and keep recordings on a big one. Three cameras recording raw write about 45 MB/s, and a slow
+or busy hard disk drops frames. *Settings → Storage…* sets:
+- **Recording folder:** an SSD, with its free space shown in hours of raw video.
+- **Archive folder:** a big hard disk, a NAS or a server share. After Stop, each session is copied there in the
+  background, every file read back and its SHA-256 checked. Only then is it deleted from the recording folder.
+
+The same window lists the recording folder's sessions and moves waiting ones now; `mavric archive --all` does it from
+the command line. Details: [reference](docs/reference.md#storage-record-on-a-fast-drive-keep-on-a-big-one).
 
 ### Calibrate the cameras
 
@@ -409,6 +420,7 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 | `mavric render <session>` | annotated video, with sound and a spectrogram strip (`--camera`) |
 | `mavric timeline <session>` | audio and label tracks on the video's clock, for Audacity, Ethograph, BORIS |
 | `mavric compress <session or folder>` | `<name>_compressed.mp4` copies |
+| `mavric archive [--all \| <session>]` | which sessions are in the archive folder; move them there, every file checked |
 | `mavric audio devices\|test\|sounds\|play` | audio interfaces, bench check, the sound library, play a sound |
 | `mavric sounds detect\|export\|import <session>` | sound-event proposals, Audacity / Raven exchange |
 | `mavric outputs list\|test\|fire` | output devices and rules from `config/outputs.yaml` |
@@ -441,7 +453,7 @@ stay on your computer.
 | `rig.yaml` | RFID port, antennas → places, cameras, audio inputs and speakers, sync, paths | text editor |
 | `tags.csv` | tag ID → subject name and colour | text editor |
 | `rois.json` | place ROIs and the sync LED box, with their heights once placed in 3D | Acquire: *Save ROIs to rig*; *Calibrate cameras… → Save places* |
-| `video.yaml` | camera and recording settings (override `rig.yaml`) | Acquire: *Settings → Video settings…* |
+| `video.yaml` | camera, recording and storage settings (override `rig.yaml`) | Acquire: *Settings → Video settings…*, *Storage…* |
 | `outputs.yaml` | output devices, rules, camera clip rules | Acquire: *Settings → Outputs…* |
 | `sound_types.yaml` | sound event types | Review: *Types…* |
 | `calibration.yaml` | each camera's lens and position, the microphones and speakers (`calibration/` holds the views used and each camera's reference view) | Acquire: *Settings → Calibrate cameras…* |

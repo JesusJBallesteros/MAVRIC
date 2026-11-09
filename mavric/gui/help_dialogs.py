@@ -30,12 +30,17 @@ BASICS = {
   </ul></li>
 <li><b>Record.</b> Enter a name and notes, then <i>Start recording</i>.
   <ul>
-  <li>Everything goes to <code>sessions/&lt;date&gt;_&lt;name&gt;</code>.</li>
+  <li>Everything goes to <code>sessions/&lt;date&gt;_&lt;name&gt;</code>, or to the recording folder set in
+  <i>Settings → Storage…</i>.</li>
+  <li>With an archive folder set there, each session then moves to it in the background, every file checked
+  before the recording folder's copy is deleted.</li>
   <li>Video is kept raw (lossless chunks); compress it afterwards.</li>
   </ul></li>
 <li><b>Settings menu.</b>
   <ul>
   <li><i>Video settings…</i>: exposure, gain, image size, recording format; <i>Add camera…</i> adds a camera (e.g. a third one) by its serial number.</li>
+  <li><i>Storage…</i>: record on a fast drive (SSD), then move each session to an archive folder (a big drive or a
+  share); which sessions are archived; move waiting ones now.</li>
   <li><i>Calibrate cameras…</i>: each camera's lens, then where all cameras are, from views of the ChArUco board
   (<i>Sticker sheet…</i> turns a plain checkerboard into one); then each place's height, so every camera shows the
   places; then where the microphones and speakers are, checked by sound.</li>
@@ -60,6 +65,8 @@ when the window closes.</p>
 <li><code>mavric analyze &lt;session&gt;</code>: sync check, RFID vs labels, sounds, plots.</li>
 <li><code>mavric render &lt;session&gt;</code>: annotated video, with sound and a spectrogram strip.</li>
 <li><code>mavric compress &lt;session&gt;</code>: shareable and DeepLabCut copies.</li>
+<li><code>mavric archive</code>: which sessions are in the archive folder; <code>--all</code> moves the waiting
+ones.</li>
 </ul>
 <p>Hover over any control for a short description.</p>""",
     "review": """

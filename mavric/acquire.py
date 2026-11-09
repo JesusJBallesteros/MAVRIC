@@ -13,6 +13,7 @@ import copy
 import threading
 from collections import deque
 
+from .archive import Archiver, interrupted
 from .audio.config import AudioConfig
 from .config import RoiSet, TagMap, resolve_path
 from .outputs.config import OutputsConfig
@@ -150,6 +151,7 @@ class AcquisitionController:
         self.world = None  # SimWorld in simulation mode
         self._refs: dict = {}  # camera -> (file stamp, drift.Reference)
         self.positions: dict[str, list] = {}  # camera -> its last few drift.Shift measurements
+        self.archiver = Archiver()  # moves finished sessions to paths.archive_dir
         try:
             clip_cfg = self.load_outputs_config()
         except (OSError, ValueError) as e:  # a broken outputs.yaml must not stop acquisition
@@ -543,12 +545,37 @@ class AcquisitionController:
         self.session = None
         self._rec_t0 = None
         self.bus.publish("status", {"source": "session", "recording": False, "path": str(sess.path)})
+        a = self.archive_settings
+        if a["dir"] and a["after_stop"]:
+            try:
+                self.archive([sess.path] + [p for p in interrupted(self.rig["paths"]["sessions_dir"], a["dir"])
+                                            if p != sess.path])
+            except Exception as e:  # the session is saved; it stays in the recording folder
+                self.bus.publish("status", {"source": "archive", "error": str(e)})
         return sess
+
+    # ------------------------------------------------------------------ archive
+    @property
+    def archive_settings(self) -> dict:
+        a = self.rig.get("archive") or {}
+        return {"dir": self.rig["paths"].get("archive_dir") or "", "after_stop": bool(a.get("after_stop", True)),
+                "keep_local": bool(a.get("keep_local", False))}
+
+    def archive(self, sessions, archive_dir: str | None = None, keep_local: bool | None = None) -> int:
+        """Queue sessions for moving to the archive folder (background); returns how many were queued."""
+        a = self.archive_settings
+        root = archive_dir if archive_dir is not None else a["dir"]
+        if not root:
+            raise ValueError("no archive folder: set paths.archive_dir in rig.yaml, or Settings → Storage…")
+        keep = a["keep_local"] if keep_local is None else keep_local
+        cur = str(self.session.path) if self.session else None
+        return sum(self.archiver.submit(p, root, keep) for p in sessions if str(p) != cur)
 
     def shutdown(self) -> None:
         try:
             self.stop_recording()
         finally:
+            self.archiver.stop()  # a half-moved session resumes after the next Stop (or mavric archive)
             self.stop_outputs()
             self.disconnect_audio()
             self.disconnect_rfid()
@@ -581,6 +608,7 @@ class AcquisitionController:
         ft = self.frame_trigger
         if ft["source"] != "none" or any(th.backend.frame_trigger for th in self.cams.values()):
             s["frame_trigger"] = {**ft, **(self.rfid.trigger if self.rfid is not None else {"running": None})}
+        s["archive"] = {**self.archiver.status(), "dir": self.archive_settings["dir"]}
         s["triggers"] = self.triggers.status() if self.triggers else []
         s["outputs"] = self.outputs.status() if self.outputs else None
         if self.audio is not None:
@@ -669,6 +697,8 @@ def simulation_controller(rig: dict, duration_s: float = 3600, seed: int = 0,
     vs = VideoSettings.load(sim_video)
     vs.added = [] if n_cameras else [c for c in vs.added if c.get("backend") == "synthetic"]
     rig["video"] = copy.deepcopy(rig.get("video") or {})
+    rig["paths"] = {**rig["paths"], "archive_dir": ""}  # simulated sessions go to an archive only when the
+    rig["archive"] = dict(rig.get("archive") or {})  # simulation's Storage… says so (in _sim_video.yaml)
     vs.apply(rig)
     rig["rfid"] = {**rig["rfid"], "port": "SIM"}
     rig["audio"] = {**rig["audio"], "host_api": "sim", "device": "simulated"}

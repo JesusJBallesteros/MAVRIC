@@ -137,7 +137,8 @@ DEFAULT_RIG = {
         "temperature_c": 20.0,  # room temperature: the speed of sound for microphone and speaker positions
     },
     "paths": {
-        "sessions_dir": "sessions",
+        "sessions_dir": "sessions",  # where recordings are written: a fast drive (SSD)
+        "archive_dir": "",  # where finished sessions are moved (a big drive or a share); "" = they stay
         "tags_file": "config/tags.csv",
         "rois_file": "config/rois.json",
         "outputs_file": "config/outputs.yaml",
@@ -145,6 +146,10 @@ DEFAULT_RIG = {
         "video_settings_file": "config/video.yaml",  # camera/recording settings from the acquire GUI
         "calibration_file": "config/calibration.yaml",  # camera calibration (acquire GUI: Calibrate cameras...)
         "gui_layout_file": "config/gui_layout.ini",  # where the acquire window's panels are, saved on closing
+    },
+    "archive": {  # moving sessions to paths.archive_dir (mavric/archive.py)
+        "after_stop": True,  # each session as soon as it stops, in the background
+        "keep_local": False,  # True: copy only; the session stays in sessions_dir too
     },
 }
 
@@ -196,14 +201,14 @@ def load_rig(path: str | Path | None = None) -> dict:
     root = path.parent.parent if path.parent.name == "config" else path.parent
     if not path.exists():
         root = project_root()
-    rig["paths"] = {k: str(resolve_path(v, root)) for k, v in rig["paths"].items()}
+    rig["paths"] = {k: str(resolve_path(v, root)) if v else "" for k, v in rig["paths"].items()}  # "": not set
+    rig["_path"] = str(path)
+    rig["_root"] = str(root)
     vs = Path(rig["paths"].get("video_settings_file", ""))
     if vs.is_file():  # settings saved from the acquire GUI override rig.yaml
         from .video.settings import VideoSettings
 
         VideoSettings.load(vs).apply(rig)
-    rig["_path"] = str(path)
-    rig["_root"] = str(root)
     return rig
 
 
