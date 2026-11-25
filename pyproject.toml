@@ -40,3 +40,4 @@ include = ["mavric*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # tests import shared fakes as tests.<module>, from any folder (mavric selftest, pytest)
