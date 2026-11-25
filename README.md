@@ -27,12 +27,13 @@ a feeder, a nest box or a doorway.
 4. [Review](#3-review)
 5. [Analyze](#4-analyze)
 6. [Compress video and DeepLabCut](#5-compress-video-and-deeplabcut)
-7. [Commands](#commands)
-8. [Files](#files)
-9. [Troubleshooting](#troubleshooting)
-10. [Hardware](#hardware)
-11. [Documentation](#documentation)
-12. [Licence and citation](#licence-and-citation)
+7. [Labelling and Curation](#labelling-and-curation)
+8. [Commands](#commands)
+9. [Files](#files)
+10. [Troubleshooting](#troubleshooting)
+11. [Hardware](#hardware)
+12. [Documentation](#documentation)
+13. [Licence and citation](#licence-and-citation)
 
 ---
 
@@ -410,6 +411,73 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 
 ---
 
+## Labelling and Curation
+
+Labelling (place labels, sound events) and RFID curation can run on a second PC, so the recording PC only records.
+The second PC uses the same installation. It needs the session folders and a few shared files, nothing else: a
+session opens wherever its folder is.
+
+### Moving sessions between the PCs
+
+**Portable hard drive (the usual way).** `mavric archive --keep-local` copies a session folder and checks every
+file against its SHA-256. Run in the other direction, it copies only the files that changed: the labels.
+
+| On the | Command | Copies |
+|---|---|---|
+| Recording PC | `mavric archive E:\MAVRIC_archive\<session> --to H:\MAVRIC_transfer --keep-local` | the whole session to the drive |
+| Labelling PC | `mavric archive H:\MAVRIC_transfer\<session> --to D:\MAVRIC_labelling --keep-local` | the whole session to this PC's SSD |
+| Labelling PC | `mavric review D:\MAVRIC_labelling\<session>` | (label and curate) |
+| Labelling PC | `mavric archive D:\MAVRIC_labelling\<session> --to H:\MAVRIC_transfer --keep-local` | the new and changed files back to the drive |
+| Recording PC | `mavric archive H:\MAVRIC_transfer\<session> --to E:\MAVRIC_archive --keep-local` | those files into the archive |
+
+The drive letters are examples: E: is the archive drive, H: the portable drive, D: the labelling PC's SSD.
+- **Always add `--keep-local` here.** Without it the command moves the session and deletes the copy it read from.
+- **The archive stays the master copy.** The portable drive only carries sessions between the PCs.
+- **Reviewing straight from the portable drive works too** (`mavric review H:\MAVRIC_transfer\<session>`). A copy on
+  the SSD seeks faster and frees the drive to travel.
+
+**Network share.** If both PCs reach a shared folder over a wired network (1 Gbit/s or faster), make it the
+recording PC's archive folder (*Settings → Storage…*). Sessions land there after Stop. The labelling PC reviews them
+in place (`mavric review \\server\share\<session>`), so nothing has to be carried or copied back.
+
+### Files the two PCs must share
+
+- **The same MAVRIC version.** Review reads what Acquire writes, so update both PCs together (`git pull`), and check
+  that `mavric --version` matches.
+- **`config/sound_types.yaml`:** the sound event types. Copy it from the recording PC, and again whenever the types
+  change.
+- **`config/video.yaml`**, only if you compress videos on the labelling PC: the compression defaults.
+- **Nothing else.** Each session folder carries its own `tags.csv`, `rois.json`, `calibration.yaml` and settings, so
+  the labelling PC needs no rig configuration: no ports, camera serials or ROIs.
+
+### Hardware and software
+
+- **Software:** Windows 10/11, then from the [installation guide](docs/installation.md):
+  - **Install:** §3 (Git, conda) and §5.1, §5.2 and §5.4 (MAVRIC, its environment, the check).
+  - **Skip:** the drivers and vendor software (§4: Arduino, Spinnaker, Basler, MOTU, Intan, MATLAB), the hardware extras
+    (§5.3), the firmware (§7) and the device checks (§8).
+  - **Check:** run `mavric selftest` once; it needs no hardware.
+- **Screen:** 1920×1080 or larger. The video, timeline, waveform and spectrograms share one window.
+- **Headphones or speakers:** for sound events.
+- **Storage:** a USB 3 port for the portable drive, and room on an SSD for the sessions being labelled. Raw video
+  takes about 50 GB per camera-hour.
+- **No GPU, cameras or audio interface needed.** A CPU with many cores speeds up `mavric compress`.
+
+### Best practices
+
+- **One session in one place at a time.** Each session has one `manual_labels.csv`, `label_coverage.csv`,
+  `rfid_curation.csv`, `sound_events.csv` and `sound_coverage.csv`. A copy brought back replaces the older one, so if
+  two people label copies of the same session, the last one copied back wins.
+- **Always the same initials** (the start dialog, or `--annotator JB`). Label rows and watched time carry them.
+- **Label blind first, then curate** (*Mode: Blind*, then *Curate*), so RFID does not steer the labels.
+- **Save before copying back** (Ctrl+S; review also saves every minute).
+- **Format the portable drive as NTFS.** FAT32 cannot hold files over 4 GB, such as long compressed videos. Eject the
+  drive before unplugging it.
+- **Compress on the labelling PC** (`mavric compress <session>`) if you need H.264 copies. That keeps the load off
+  the recording PC, and the `_compressed.mp4` files travel back with the labels.
+
+---
+
 ## Commands
 
 | Command | Does |
@@ -420,7 +488,7 @@ Sources: [DLC video tips](https://deeplabcut.github.io/DeepLabCut/docs/recipes/i
 | `mavric render <session>` | annotated video, with sound and a spectrogram strip (`--camera`) |
 | `mavric timeline <session>` | audio and label tracks on the video's clock, for Audacity, Ethograph, BORIS |
 | `mavric compress <session or folder>` | `<name>_compressed.mp4` copies |
-| `mavric archive [--all \| <session>]` | which sessions are in the archive folder; move them there, every file checked |
+| `mavric archive [--all \| <session>]` | which sessions are in the archive folder; move them there, every file checked (`--keep-local` copies; see [Labelling and Curation](#labelling-and-curation)) |
 | `mavric audio devices\|test\|sounds\|play` | audio interfaces, bench check, the sound library, play a sound |
 | `mavric sounds detect\|export\|import <session>` | sound-event proposals, Audacity / Raven exchange |
 | `mavric outputs list\|test\|fire` | output devices and rules from `config/outputs.yaml` |
